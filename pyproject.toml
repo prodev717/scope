@@ -1,0 +1,18 @@
+[project]
+name = "scope"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "insightface>=1.0.1",
+    "onnxruntime>=1.29.0",
+    "onnxruntime-gpu>=1.29.0",
+    "opencv-python>=5.0.0.93",
+    "pillow>=12.3.0",
+    "sentencepiece>=0.2.2",
+    "torch>=2.13.0",
+    "torchvision>=0.28.0",
+    "transformers>=5.16.1",
+    "ultralytics>=8.4.132",
+]
