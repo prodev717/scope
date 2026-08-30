@@ -13,9 +13,10 @@ from shapely.geometry import Polygon
 from ultralytics import YOLO
 
 # --- CONFIGURATION ---
-VIDEO_PATH = "known.mpg"  # Input video file path
+VIDEO_PATH = "car.mp4"  # Input video file path
 DATABASE_PATH = "face_database.npz"  # Pre-saved face embeddings file
 JSON_LOG_PATH = "live_surveillance_log.json"
+LATEST_FRAME_PATH = "latest_frame.jpg"
 
 YOLO_MODEL = "yolo11n.pt"
 PLATE_MODEL = "license-plate-finetune-v1n.pt"
@@ -133,6 +134,26 @@ def emit_logged_event(event):
     logged_events.append(event)
     print(json.dumps(event, ensure_ascii=False))
     flush_live_log_unlocked()
+
+def publish_frame(frame):
+    """Publish a complete JPEG atomically so the API never reads a partial frame."""
+    encoded, buffer = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+    if encoded:
+        temporary_path = f"{LATEST_FRAME_PATH}.tmp"
+        with open(temporary_path, "wb") as output:
+            output.write(buffer.tobytes())
+        for attempt in range(5):
+            try:
+                os.replace(temporary_path, LATEST_FRAME_PATH)
+                break
+            except PermissionError:
+                if attempt == 4:
+                    try:
+                        os.remove(temporary_path)
+                    except OSError:
+                        pass
+                else:
+                    time.sleep(0.01)
 
 # --- THREAD WORKERS ---
 def ocr_worker():
@@ -357,6 +378,8 @@ while cap.isOpened():
     annotated_resized = cv2.resize(annotated, (DISPLAY_WIDTH, DISPLAY_HEIGHT))
     cv2.putText(annotated_resized, f"FPS: {current_fps:.1f} | Active Tracks: {len(active_tracks)} | Logged Events: {len(logged_events)}", 
                 (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+
+    publish_frame(annotated_resized)
 
     cv2.imshow("Surveillance Analytics (Vehicle + Face)", annotated_resized)
     if cv2.waitKey(1) & 0xFF == ord("q"):

@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "fastapi>=0.115.0",
     "insightface>=1.0.1",
     "onnxruntime>=1.29.0",
     "onnxruntime-gpu>=1.29.0",
@@ -16,4 +17,5 @@ dependencies = [
     "torchvision>=0.28.0",
     "transformers>=5.16.1",
     "ultralytics>=8.4.132",
+    "uvicorn[standard]>=0.30.0",
 ]

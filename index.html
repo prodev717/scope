@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Scope Live Surveillance</title>
+</head>
+<body>
+  <main>
+    <h1>Live surveillance</h1>
+    <img id="frame" alt="Latest surveillance frame" width="960">
+    <h2>Known faces</h2>
+    <ul id="faces"></ul>
+    <h2>Logs</h2>
+    <pre id="logs">Waiting for logs...</pre>
+  </main>
+
+  <script>
+    const frame = document.getElementById("frame");
+    const faces = document.getElementById("faces");
+    const logs = document.getElementById("logs");
+
+    function updateFrame(encoded) {
+      if (encoded) frame.src = `data:image/jpeg;base64,${encoded}`;
+    }
+
+    function updateLogs(events) {
+      logs.textContent = JSON.stringify(events || [], null, 2);
+    }
+
+    fetch("/faces")
+      .then(response => response.json())
+      .then(data => {
+        faces.replaceChildren();
+        data.faces.forEach(face => {
+          const item = document.createElement("li");
+          item.textContent = face.name;
+          if (face.image_base64) {
+            const image = document.createElement("img");
+            image.src = `data:${face.content_type};base64,${face.image_base64}`;
+            image.alt = face.name;
+            image.width = 100;
+            item.append(" ", image);
+          }
+          faces.appendChild(item);
+        });
+      });
+
+    fetch("/frame")
+      .then(response => response.ok ? response.json() : null)
+      .then(data => data && updateFrame(data.frame_base64));
+
+    fetch("/logs")
+      .then(response => response.json())
+      .then(data => updateLogs(data.events));
+
+    const live = new EventSource("/live");
+    live.onmessage = event => {
+      const data = JSON.parse(event.data);
+      updateFrame(data.frame_base64);
+      updateLogs(data.events);
+    };
+  </script>
+</body>
+</html>
