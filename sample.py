@@ -13,7 +13,7 @@ from shapely.geometry import Polygon
 from ultralytics import YOLO
 
 # --- CONFIGURATION ---
-VIDEO_PATH = "face.mpg"  # Input video file path
+VIDEO_PATH = "known.mpg"  # Input video file path
 DATABASE_PATH = "face_database.npz"  # Pre-saved face embeddings file
 JSON_LOG_PATH = "live_surveillance_log.json"
 
@@ -25,15 +25,15 @@ PLATE_CONF = 0.25
 FACE_SIMILARITY_THRESHOLD = 0.40
 
 # --- VIRTUAL FENCE CONFIGURATION ---
-ENABLE_VIRTUAL_FENCE = True  # Toggle Virtual Fence feature on/off
+ENABLE_VIRTUAL_FENCE = False  # Toggle Virtual Fence feature on/off
 OVERLAP_THRESHOLD = 0.30     # Minimum area fraction overlap required to trigger intrusion (0.0 to 1.0)
 
 # Define 4-point polygon coordinates (x, y) relative to raw video frame size
 VIRTUAL_FENCE_PTS = np.array([
-    [200, 150],  # Top-Left
-    [760, 150],  # Top-Right
-    [850, 480],  # Bottom-Right
-    [100, 480]   # Bottom-Left
+    [220, 365],  # Top-Left
+    [532, 290],  # Top-Right
+    [588, 454],  # Bottom-Right
+    [355, 526]   # Bottom-Left
 ], np.int32)
 
 TRACK_IMG_SIZE = 640
@@ -211,7 +211,7 @@ def face_worker():
                         if matched_name != "Unknown":
                             t["face_history"].append(matched_name)
                             t["person_name"] = Counter(t["face_history"]).most_common(1)[0][0]
-                        elif not t["person_name"]:
+                        elif t["person_name"] is None:
                             t["person_name"] = "Unknown"
                         t["face_confidence"] = round(matched_score, 2)
         except Exception:
@@ -298,8 +298,11 @@ while cap.isOpened():
                 # Person -> Process Face Recognition
                 elif c_idx == PERSON_CLASS and crop.size > 0:
                     track = active_tracks[tid]
-                    if (not track["person_name"] and tid not in pending_face and 
-                            (now_sec - track["last_face_time"] >= FACE_COOLDOWN)):
+                    if (
+                        track.get("person_name") in (None, "Unknown")
+                        and tid not in pending_face
+                        and (now_sec - track["last_face_time"] >= FACE_COOLDOWN)
+                    ):
                         pending_face.add(tid)
                         track["last_face_time"] = now_sec
                         try:

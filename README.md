@@ -31,6 +31,60 @@ This is not yet a full production-ready border security system. The architecture
 * Event logging with evidence
 * Centralized monitoring dashboard
 
+## Technical Details
+
+### Models Used
+
+* YOLOv11 Nano (`yolo11n.pt`) for real-time object detection and tracking
+* ByteTrack for multi-object tracking between frames
+* ArcFace / InsightFace Buffalo L model for face embedding extraction and matching
+* RapidOCR for number plate text extraction from vehicle crops
+
+### Processing Flow
+
+1. Each video frame is read from the input CCTV stream.
+2. YOLOv11 performs object detection for persons and vehicles.
+3. ByteTrack assigns persistent track IDs to detected objects across frames.
+4. Bounding boxes are converted into per-object crops for downstream processing.
+5. Vehicle crops are sent to the OCR pipeline to detect and read license plates.
+6. Person crops are sent to the face recognition pipeline to compare embeddings with known identities.
+7. The system checks whether tracked objects intersect or enter a configured restricted polygon.
+8. If a detection matches a rule, an event is created and saved as a JSON log entry.
+9. The system writes event metadata and evidence snapshots to the local events folder.
+
+### Rule-Based Event Engine
+
+The prototype uses deterministic custom rules instead of semantic AI classification. The core logic is based on:
+
+* object class (person vs vehicle)
+* track ID continuity across frames
+* bounding-box intersection with a configured virtual fence polygon
+* OCR confidence threshold for number plate reading
+* face similarity threshold for identity matching
+
+This means alerts are triggered by geometric and temporal conditions rather than by a generative language model or VLM-style classifier.
+
+### Data Output
+
+The surveillance system logs structured events into JSONL or JSON files, for example:
+
+```json
+{
+  "timestamp": "2026-08-30 13:25:47",
+  "frame": 240,
+  "event": "Number Plate Read",
+  "confidence": 0.977,
+  "details": {
+    "track_id": 5,
+    "object": "vehicle",
+    "plate_number": "DCP-4860",
+    "ocr_score": 0.977
+  }
+}
+```
+
+These logs can be used for dashboarding, alert review, and later integration with a backend or central command system.
+
 ## Current Prototype Architecture
 
 ```mermaid

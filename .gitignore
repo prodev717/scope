@@ -1,8 +1,9 @@
 car.mp4
-face.mpg
-car.jpg
-yolo11n.pt
-sample.mp4
 .venv
 fence.mp4
 known_faces
+face_database.npz
+known.mpg
+unknown.mpg
+yolo11n.pt
+license-plate-finetune-v1n.pt
