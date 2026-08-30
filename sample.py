@@ -13,7 +13,7 @@ from shapely.geometry import Polygon
 from ultralytics import YOLO
 
 # --- CONFIGURATION ---
-VIDEO_PATH = "car.mp4"  # Input video file path
+VIDEO_PATH = os.environ.get("SCOPE_VIDEO", "fence.mp4")  # Override with: set SCOPE_VIDEO=yourfile.mp4
 DATABASE_PATH = "face_database.npz"  # Pre-saved face embeddings file
 JSON_LOG_PATH = "live_surveillance_log.json"
 LATEST_FRAME_PATH = "latest_frame.jpg"
@@ -26,7 +26,7 @@ PLATE_CONF = 0.25
 FACE_SIMILARITY_THRESHOLD = 0.40
 
 # --- VIRTUAL FENCE CONFIGURATION ---
-ENABLE_VIRTUAL_FENCE = False  # Toggle Virtual Fence feature on/off
+ENABLE_VIRTUAL_FENCE = True  # Toggle Virtual Fence feature on/off
 OVERLAP_THRESHOLD = 0.30     # Minimum area fraction overlap required to trigger intrusion (0.0 to 1.0)
 
 # Define 4-point polygon coordinates (x, y) relative to raw video frame size
@@ -251,14 +251,34 @@ threading.Thread(target=ocr_worker, daemon=True).start()
 threading.Thread(target=face_worker, daemon=True).start()
 
 # --- MAIN STREAM ENGINE ---
-cap = cv2.VideoCapture(VIDEO_PATH)
+# Determine source: file or webcam
+_use_webcam = False
+if not os.path.exists(VIDEO_PATH):
+    print(f"[WARN] Video file '{VIDEO_PATH}' not found. Trying webcam (device 0)...")
+    cap = cv2.VideoCapture(0)
+    _use_webcam = True
+else:
+    cap = cv2.VideoCapture(VIDEO_PATH)
+
+if not cap.isOpened():
+    print(f"[ERROR] Could not open video source. Provide a valid video file:")
+    print(f"  Windows: set SCOPE_VIDEO=C:\\path\\to\\your_video.mp4 && uv run python api.py")
+    print(f"  Or place a video file named 'car.mp4' in the project directory.")
+    raise SystemExit(1)
+
 frame_count, fps_start, fps_counter, current_fps = 0, time.time(), 0, 0.0
 
 print("[INFO] Processing stream with vehicle plate, face recognition, & virtual fence...")
 while cap.isOpened():
     ret, frame = cap.read()
     if not ret:
-        break
+        if _use_webcam:
+            break  # Webcam disconnected
+        # Loop video file back to start
+        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+        ret, frame = cap.read()
+        if not ret:
+            break
 
     frame_count += 1
     if frame_count % FRAME_SKIP != 0:
