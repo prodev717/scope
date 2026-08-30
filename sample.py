@@ -16,7 +16,18 @@ from transformers import AutoProcessor, AutoModel
 # CONFIGURATION
 # ============================================================
 
-VIDEO_PATH = "car.mp4"
+VIDEO_PATH = "sample.mp4"
+
+VIRTUAL_FENCE_ENABLED = False
+
+# 4-point virtual fence polygon in image coordinates.
+# Points are ordered clockwise or counter-clockwise.
+VIRTUAL_FENCE_POINTS = [
+    (100, 100),
+    (500, 100),
+    (500, 400),
+    (100, 400),
+]
 
 YOLO_MODEL = "yolo11n.pt"
 
@@ -349,18 +360,83 @@ def log_event(
 # VIRTUAL FENCE
 # ============================================================
 
+def point_in_polygon(x, y, points):
+    """Ray-casting algorithm for a point inside a polygon."""
+    inside = False
+    n = len(points)
+
+    for i in range(n):
+        x1, y1 = points[i]
+        x2, y2 = points[(i + 1) % n]
+
+        if ((y1 > y) != (y2 > y)) and (
+            x < (x2 - x1) * (y - y1) / (y2 - y1 + 1e-9) + x1
+        ):
+            inside = not inside
+
+    return inside
+
+
+def segment_intersects_segment(p1, p2, p3, p4):
+    """Returns True if two line segments intersect."""
+
+    def orientation(a, b, c):
+        value = (b[1] - a[1]) * (c[0] - b[0]) - (b[0] - a[0]) * (c[1] - b[1])
+        if abs(value) < 1e-9:
+            return 0
+        return 1 if value > 0 else -1
+
+    o1 = orientation(p1, p2, p3)
+    o2 = orientation(p1, p2, p4)
+    o3 = orientation(p3, p4, p1)
+    o4 = orientation(p3, p4, p2)
+
+    if o1 == 0 and o2 == 0 and o3 == 0 and o4 == 0:
+        return False
+
+    if o1 * o2 <= 0 and o3 * o4 <= 0:
+        return True
+
+    return False
+
+
+def box_overlaps_restricted_zone(x1, y1, x2, y2):
+    """Return True when a box intersects the configured 4-point fence."""
+    if not VIRTUAL_FENCE_ENABLED:
+        return False
+
+    points = VIRTUAL_FENCE_POINTS
+    box_corners = [
+        (x1, y1),
+        (x2, y1),
+        (x2, y2),
+        (x1, y2),
+    ]
+
+    if any(point_in_polygon(px, py, points) for px, py in box_corners):
+        return True
+
+    if any(point_in_polygon(px, py, box_corners) for px, py in points):
+        return True
+
+    for i in range(len(points)):
+        p1 = points[i]
+        p2 = points[(i + 1) % len(points)]
+
+        for j in range(len(box_corners)):
+            q1 = box_corners[j]
+            q2 = box_corners[(j + 1) % len(box_corners)]
+
+            if segment_intersects_segment(p1, p2, q1, q2):
+                return True
+
+    return False
+
+
 def inside_restricted_zone(x, y):
-
-    # Example rectangular restricted area
-    #
-    # Change these coordinates according
-    # to your CCTV camera.
-
-    return (
-        100 <= x <= 500
-        and
-        100 <= y <= 400
-    )
+    if not VIRTUAL_FENCE_ENABLED:
+        return False
+    return point_in_polygon(x, y, VIRTUAL_FENCE_POINTS)
 
 
 # ============================================================
@@ -485,23 +561,29 @@ while True:
     # DRAW RESTRICTED AREA
     # ========================================================
 
-    cv2.rectangle(
-        display,
-        (100, 100),
-        (500, 400),
-        (0, 0, 255),
-        2
-    )
+    if VIRTUAL_FENCE_ENABLED:
+        fence_points = np.array(
+            VIRTUAL_FENCE_POINTS,
+            dtype=np.int32
+        )
 
-    cv2.putText(
-        display,
-        "RESTRICTED ZONE",
-        (110, 125),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.6,
-        (0, 0, 255),
-        2
-    )
+        cv2.polylines(
+            display,
+            [fence_points],
+            True,
+            (0, 0, 255),
+            2
+        )
+
+        cv2.putText(
+            display,
+            "RESTRICTED ZONE",
+            (VIRTUAL_FENCE_POINTS[0][0] + 10, VIRTUAL_FENCE_POINTS[0][1] + 25),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.6,
+            (0, 0, 255),
+            2
+        )
 
 
     # ========================================================
@@ -523,9 +605,9 @@ while True:
         cx = (x1 + x2) // 2
         cy = (y1 + y2) // 2
 
-        intrusion = inside_restricted_zone(
-            cx,
-            cy
+        intrusion = (
+            box_overlaps_restricted_zone(x1, y1, x2, y2)
+            or inside_restricted_zone(cx, cy)
         )
 
         if intrusion:
@@ -637,12 +719,16 @@ while True:
         cx = (x1 + x2) // 2
         cy = (y1 + y2) // 2
 
+        vehicle_intrusion = (
+            box_overlaps_restricted_zone(x1, y1, x2, y2)
+            or inside_restricted_zone(cx, cy)
+        )
 
         # -----------------------------------------------
         # Vehicle intrusion
         # -----------------------------------------------
 
-        if inside_restricted_zone(cx, cy):
+        if vehicle_intrusion:
 
             log_event(
                 "Vehicle Intrusion",
@@ -677,16 +763,31 @@ while True:
 
                     if score > 0.40:
 
+                        plate_text = text.strip()
+
                         print(
                             f"[ANPR] "
                             f"Track {track_id}: "
-                            f"{text} "
+                            f"{plate_text} "
                             f"({score:.2f})"
+                        )
+
+                        log_event(
+                            "Number Plate Read",
+                            frame_number,
+                            score,
+                            {
+                                "track_id": track_id,
+                                "object": "vehicle",
+                                "plate_number": plate_text,
+                                "ocr_score": round(float(score), 3)
+                            },
+                            frame
                         )
 
                         cv2.putText(
                             display,
-                            text,
+                            plate_text,
                             (x1, y2 + 20),
                             cv2.FONT_HERSHEY_SIMPLEX,
                             0.6,
