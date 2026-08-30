@@ -3,63 +3,1746 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Scope Live Surveillance</title>
+  <title>SCOPE — Intelligent Surveillance Command Center</title>
+  <style>
+    /* ─── RESET & BASE ─────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:           #0a0d14;
+      --bg2:          #0f1420;
+      --bg3:          #141926;
+      --panel:        #111827;
+      --panel-border: #1e2a3a;
+      --text:         #e2e8f0;
+      --text-muted:   #64748b;
+      --text-dim:     #94a3b8;
+      --green:        #22c55e;
+      --green-dim:    #16a34a;
+      --red:          #ef4444;
+      --red-dim:      #991b1b;
+      --amber:        #f59e0b;
+      --cyan:         #06b6d4;
+      --blue:         #3b82f6;
+      --indigo:       #6366f1;
+      --accent:       #0ea5e9;
+      --border:       1px solid #1e2a3a;
+    }
+
+    html { font-size: 14px; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      min-height: 100vh;
+      line-height: 1.5;
+      overflow-x: hidden;
+    }
+
+    /* ─── SCROLLBAR ────────────────────────────────────────────────────── */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: var(--bg2); }
+    ::-webkit-scrollbar-thumb { background: #2d3748; border-radius: 3px; }
+
+    /* ─── HEADER ───────────────────────────────────────────────────────── */
+    #header {
+      background: var(--bg2);
+      border-bottom: var(--border);
+      padding: 0 20px;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .logo-mark {
+      width: 34px;
+      height: 34px;
+      background: linear-gradient(135deg, var(--accent), var(--indigo));
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 900;
+      font-size: 14px;
+      letter-spacing: -0.5px;
+      color: #fff;
+      flex-shrink: 0;
+    }
+
+    .logo-text { line-height: 1.1; }
+    .logo-title { font-size: 15px; font-weight: 700; letter-spacing: 3px; color: var(--accent); }
+    .logo-sub { font-size: 10px; color: var(--text-muted); letter-spacing: 1.5px; text-transform: uppercase; }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+    }
+
+    .status-pill {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: var(--text-dim);
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--text-muted);
+      flex-shrink: 0;
+    }
+    .status-dot.green { background: var(--green); box-shadow: 0 0 6px var(--green); animation: pulse-green 2s infinite; }
+    .status-dot.red { background: var(--red); box-shadow: 0 0 6px var(--red); }
+    .status-dot.amber { background: var(--amber); box-shadow: 0 0 6px var(--amber); }
+
+    @keyframes pulse-green {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    #sound-toggle {
+      background: var(--bg3);
+      border: var(--border);
+      color: var(--text-dim);
+      padding: 5px 10px;
+      border-radius: 5px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    #sound-toggle:hover { border-color: var(--accent); color: var(--accent); }
+
+    /* ─── MAIN GRID ────────────────────────────────────────────────────── */
+    #main {
+      padding: 16px;
+      display: grid;
+      grid-template-columns: 1fr 340px;
+      grid-template-rows: auto auto auto auto;
+      gap: 16px;
+      max-width: 1600px;
+      margin: 0 auto;
+    }
+
+    /* ─── PANEL CARD ───────────────────────────────────────────────────── */
+    .card {
+      background: var(--panel);
+      border: var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 14px;
+      border-bottom: var(--border);
+      background: var(--bg2);
+    }
+
+    .card-title {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: var(--text-dim);
+    }
+
+    .card-body { padding: 14px; }
+
+    /* ─── LIVE FEED ────────────────────────────────────────────────────── */
+    #video-card { grid-column: 1; grid-row: 1; }
+
+    #frame-wrap {
+      background: #000;
+      position: relative;
+      aspect-ratio: 16/9;
+      overflow: hidden;
+    }
+
+    #frame-img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block;
+    }
+
+    #frame-empty {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      color: var(--text-muted);
+    }
+
+    #frame-empty .radar-anim {
+      width: 48px;
+      height: 48px;
+      border: 2px solid var(--text-muted);
+      border-radius: 50%;
+      position: relative;
+    }
+    #frame-empty .radar-anim::after {
+      content: '';
+      position: absolute;
+      inset: 4px;
+      border: 2px solid transparent;
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 1.2s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .frame-meta {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 14px;
+      font-size: 11px;
+      color: var(--text-muted);
+      border-top: var(--border);
+      background: var(--bg2);
+    }
+
+    .cam-badge {
+      font-family: 'Courier New', monospace;
+      font-weight: 700;
+      font-size: 11px;
+      color: var(--cyan);
+      letter-spacing: 1px;
+    }
+
+    /* ─── LIVE EVENTS PANEL ────────────────────────────────────────────── */
+    #events-panel { grid-column: 2; grid-row: 1 / 3; }
+
+    #events-panel .card-body {
+      padding: 0;
+      height: 540px;
+      overflow-y: auto;
+    }
+
+    .event-card {
+      padding: 12px 14px;
+      border-bottom: var(--border);
+      transition: background 0.2s;
+      cursor: pointer;
+    }
+    .event-card:hover { background: var(--bg3); }
+    .event-card:last-child { border-bottom: none; }
+
+    .event-type-row {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      margin-bottom: 4px;
+    }
+
+    .event-icon { font-size: 14px; }
+
+    .event-type-label {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+    }
+
+    .event-time {
+      font-size: 10px;
+      color: var(--text-muted);
+      font-family: 'Courier New', monospace;
+      margin-left: auto;
+    }
+
+    .event-detail {
+      font-size: 12px;
+      color: var(--text-dim);
+      line-height: 1.6;
+    }
+
+    .event-detail strong {
+      color: var(--text);
+      font-family: 'Courier New', monospace;
+    }
+
+    .event-detail .plate-badge {
+      display: inline-block;
+      background: var(--bg3);
+      border: 1px solid var(--amber);
+      color: var(--amber);
+      font-family: 'Courier New', monospace;
+      font-weight: 700;
+      font-size: 13px;
+      padding: 2px 8px;
+      border-radius: 4px;
+      letter-spacing: 2px;
+      margin-top: 2px;
+    }
+
+    .event-detail .name-badge {
+      display: inline-block;
+      color: var(--cyan);
+      font-weight: 700;
+      font-size: 13px;
+      letter-spacing: 1px;
+    }
+
+    /* event type colors */
+    .ev-person .event-type-label { color: var(--blue); }
+    .ev-vehicle .event-type-label { color: var(--amber); }
+    .ev-anpr .event-type-label { color: var(--amber); }
+    .ev-face .event-type-label { color: var(--cyan); }
+    .ev-intrusion .event-type-label { color: var(--red); }
+
+    .ev-intrusion {
+      background: rgba(239, 68, 68, 0.07);
+      border-left: 3px solid var(--red);
+    }
+    .ev-face { border-left: 3px solid var(--cyan); }
+    .ev-anpr { border-left: 3px solid var(--amber); }
+
+    #events-empty {
+      padding: 40px 20px;
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 12px;
+      line-height: 2;
+    }
+
+    /* ─── STATS ROW ────────────────────────────────────────────────────── */
+    #stats-row {
+      grid-column: 1;
+      grid-row: 2;
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 12px;
+    }
+
+    .stat-card {
+      background: var(--panel);
+      border: var(--border);
+      border-radius: 10px;
+      padding: 14px;
+      text-align: center;
+    }
+
+    .stat-value {
+      font-size: 28px;
+      font-weight: 700;
+      font-family: 'Courier New', monospace;
+      color: var(--text);
+      line-height: 1;
+      margin-bottom: 6px;
+    }
+
+    .stat-label {
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: var(--text-muted);
+    }
+
+    .stat-card.s-persons .stat-value { color: var(--blue); }
+    .stat-card.s-vehicles .stat-value { color: var(--amber); }
+    .stat-card.s-identified .stat-value { color: var(--cyan); }
+    .stat-card.s-plates .stat-value { color: var(--amber); }
+    .stat-card.s-intrusions .stat-value { color: var(--red); }
+
+    /* ─── SYSTEM STATUS (inside events panel header area) ─────────────── */
+    #status-card { grid-column: 2; grid-row: 3; }
+
+    .sys-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: var(--border);
+      font-size: 12px;
+    }
+    .sys-row:last-child { border-bottom: none; }
+    .sys-row-label { color: var(--text-dim); font-weight: 600; letter-spacing: 0.5px; }
+    .sys-row-val {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-weight: 700;
+      font-size: 11px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+    }
+
+    /* ─── AI CAPABILITIES ──────────────────────────────────────────────── */
+    #ai-cap-card { grid-column: 2; grid-row: 4; }
+
+    .cap-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+      padding: 12px;
+    }
+
+    .cap-tag {
+      background: var(--bg3);
+      border: var(--border);
+      border-radius: 5px;
+      padding: 4px 10px;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 1px;
+      color: var(--text-dim);
+      text-transform: uppercase;
+    }
+
+    /* ─── PIPELINE VISUAL ──────────────────────────────────────────────── */
+    #pipeline-card { grid-column: 1; grid-row: 3; }
+
+    .pipeline-flow {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 0;
+      padding: 14px;
+    }
+
+    .pipe-step {
+      display: flex;
+      align-items: center;
+      flex-direction: column;
+      gap: 3px;
+      min-width: 80px;
+      text-align: center;
+    }
+
+    .pipe-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      background: var(--bg3);
+      border: var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+    }
+
+    .pipe-label {
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      line-height: 1.2;
+    }
+
+    .pipe-arrow {
+      color: var(--text-muted);
+      font-size: 14px;
+      margin: 0 4px;
+      padding-bottom: 18px;
+      flex-shrink: 0;
+    }
+
+    /* ─── HISTORY & FILTER ─────────────────────────────────────────────── */
+    #history-card { grid-column: 1 / 3; grid-row: 5; }
+
+    .history-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px;
+      border-bottom: var(--border);
+      background: var(--bg2);
+      flex-wrap: wrap;
+    }
+
+    #history-search {
+      background: var(--bg3);
+      border: var(--border);
+      border-radius: 6px;
+      padding: 6px 12px;
+      color: var(--text);
+      font-size: 12px;
+      flex: 1;
+      min-width: 160px;
+      outline: none;
+    }
+    #history-search:focus { border-color: var(--accent); }
+    #history-search::placeholder { color: var(--text-muted); }
+
+    .filter-btns { display: flex; gap: 6px; flex-wrap: wrap; }
+
+    .filter-btn {
+      background: var(--bg3);
+      border: var(--border);
+      border-radius: 5px;
+      padding: 5px 10px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .filter-btn:hover, .filter-btn.active {
+      border-color: var(--accent);
+      color: var(--accent);
+      background: rgba(14, 165, 233, 0.1);
+    }
+
+    #history-table-wrap {
+      overflow-x: auto;
+      max-height: 340px;
+      overflow-y: auto;
+    }
+
+    #history-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+
+    #history-table thead th {
+      position: sticky;
+      top: 0;
+      background: var(--bg2);
+      padding: 8px 12px;
+      text-align: left;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      border-bottom: var(--border);
+      white-space: nowrap;
+    }
+
+    #history-table tbody tr {
+      border-bottom: 1px solid rgba(30, 42, 58, 0.6);
+      transition: background 0.15s;
+      cursor: pointer;
+    }
+    #history-table tbody tr:hover { background: var(--bg3); }
+
+    #history-table td {
+      padding: 8px 12px;
+      vertical-align: middle;
+      white-space: nowrap;
+      color: var(--text-dim);
+    }
+
+    #history-table td:first-child { color: var(--text); font-family: 'Courier New', monospace; }
+
+    .type-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 7px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+
+    .chip-person { background: rgba(59, 130, 246, 0.15); color: var(--blue); }
+    .chip-vehicle { background: rgba(245, 158, 11, 0.15); color: var(--amber); }
+    .chip-face { background: rgba(6, 182, 212, 0.15); color: var(--cyan); }
+    .chip-anpr { background: rgba(245, 158, 11, 0.2); color: var(--amber); }
+    .chip-intrusion { background: rgba(239, 68, 68, 0.15); color: var(--red); }
+
+    .mono { font-family: 'Courier New', monospace; }
+    .plate-text { color: var(--amber); font-weight: 700; font-family: 'Courier New', monospace; letter-spacing: 2px; }
+    .name-text { color: var(--cyan); font-weight: 700; }
+
+    #history-empty {
+      padding: 40px;
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 12px;
+    }
+
+    /* ─── KNOWN IDENTITIES ─────────────────────────────────────────────── */
+    #faces-card { grid-column: 1 / 3; grid-row: 6; }
+
+    #faces-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px;
+      padding: 14px;
+    }
+
+    .face-tile {
+      background: var(--bg3);
+      border: var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+      width: 110px;
+      text-align: center;
+      transition: border-color 0.2s;
+    }
+    .face-tile:hover { border-color: var(--cyan); }
+
+    .face-photo {
+      width: 110px;
+      height: 110px;
+      object-fit: cover;
+      display: block;
+      background: var(--bg2);
+    }
+
+    .face-no-photo {
+      width: 110px;
+      height: 110px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 36px;
+      color: var(--text-muted);
+      background: var(--bg2);
+    }
+
+    .face-name {
+      padding: 8px 6px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      word-break: break-word;
+    }
+
+    #faces-empty {
+      padding: 30px;
+      color: var(--text-muted);
+      font-size: 12px;
+      text-align: center;
+    }
+
+    /* ─── INTRUSION ALERT BANNER ───────────────────────────────────────── */
+    #intrusion-alert {
+      display: none;
+      position: fixed;
+      top: 72px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 999;
+      background: #1a0505;
+      border: 2px solid var(--red);
+      border-radius: 10px;
+      padding: 16px 24px;
+      min-width: 360px;
+      max-width: 90vw;
+      box-shadow: 0 0 40px rgba(239, 68, 68, 0.4);
+      animation: alert-in 0.3s ease;
+    }
+
+    #intrusion-alert.active { display: block; }
+
+    @keyframes alert-in {
+      from { opacity: 0; transform: translateX(-50%) translateY(-10px); }
+      to { opacity: 1; transform: translateX(-50%) translateY(0); }
+    }
+
+    .alert-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+
+    .alert-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: var(--red);
+    }
+
+    .alert-blink { animation: blink 0.8s step-end infinite; }
+    @keyframes blink { 50% { opacity: 0; } }
+
+    .alert-body { font-size: 12px; color: var(--text-dim); line-height: 2; }
+    .alert-body strong { color: var(--text); font-family: 'Courier New', monospace; }
+
+    #alert-ack-btn {
+      margin-top: 12px;
+      background: transparent;
+      border: 1px solid var(--red);
+      color: var(--red);
+      padding: 6px 16px;
+      border-radius: 5px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: block;
+      width: 100%;
+    }
+    #alert-ack-btn:hover { background: var(--red); color: #fff; }
+
+    /* ─── EVENT DETAIL MODAL ───────────────────────────────────────────── */
+    #modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.7);
+      z-index: 200;
+      align-items: center;
+      justify-content: center;
+    }
+    #modal-overlay.active { display: flex; }
+
+    #modal {
+      background: var(--panel);
+      border: var(--border);
+      border-radius: 12px;
+      padding: 24px;
+      width: 420px;
+      max-width: 95vw;
+      max-height: 80vh;
+      overflow-y: auto;
+      position: relative;
+    }
+
+    #modal-close {
+      position: absolute;
+      top: 14px;
+      right: 14px;
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      font-size: 18px;
+      cursor: pointer;
+      padding: 4px;
+      line-height: 1;
+    }
+    #modal-close:hover { color: var(--text); }
+
+    #modal-title {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: var(--border);
+    }
+
+    .modal-field {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      padding: 7px 0;
+      border-bottom: 1px solid rgba(30,42,58,0.6);
+      font-size: 12px;
+      gap: 10px;
+    }
+    .modal-field:last-child { border-bottom: none; }
+    .modal-key { color: var(--text-muted); flex-shrink: 0; }
+    .modal-val { color: var(--text); font-family: 'Courier New', monospace; text-align: right; word-break: break-all; }
+
+    /* ─── SIH PANEL ────────────────────────────────────────────────────── */
+    #sih-card { grid-column: 1; grid-row: 4; }
+
+    .sih-flow {
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+      align-items: flex-start;
+    }
+
+    .sih-step {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 11px;
+      color: var(--text-dim);
+      font-weight: 600;
+      letter-spacing: 0.5px;
+    }
+
+    .sih-step-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+      flex-shrink: 0;
+    }
+
+    .sih-arrow {
+      width: 6px;
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 10px;
+      margin-left: 0;
+      line-height: 1.4;
+    }
+
+    /* ─── LAST UPDATE ──────────────────────────────────────────────────── */
+    #last-update-text {
+      font-family: 'Courier New', monospace;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    /* ─── RESPONSIVE ───────────────────────────────────────────────────── */
+    @media (max-width: 900px) {
+      #main { grid-template-columns: 1fr; }
+      #video-card { grid-column: 1; grid-row: 1; }
+      #events-panel { grid-column: 1; grid-row: 2; }
+      #events-panel .card-body { height: 300px; }
+      #stats-row { grid-column: 1; grid-row: 3; grid-template-columns: repeat(3, 1fr); }
+      #pipeline-card { grid-column: 1; grid-row: 4; }
+      #sih-card { grid-column: 1; grid-row: 5; }
+      #status-card { grid-column: 1; grid-row: 6; }
+      #ai-cap-card { grid-column: 1; grid-row: 7; }
+      #history-card { grid-column: 1; grid-row: 8; }
+      #faces-card { grid-column: 1; grid-row: 9; }
+    }
+
+    @media (max-width: 600px) {
+      #stats-row { grid-template-columns: repeat(2, 1fr); }
+      .pipeline-flow { gap: 8px; }
+    }
+  </style>
 </head>
 <body>
-  <main>
-    <h1>Live surveillance</h1>
-    <img id="frame" alt="Latest surveillance frame" width="960">
-    <h2>Known faces</h2>
-    <ul id="faces"></ul>
-    <h2>Logs</h2>
-    <pre id="logs">Waiting for logs...</pre>
-  </main>
 
-  <script>
-    const frame = document.getElementById("frame");
-    const faces = document.getElementById("faces");
-    const logs = document.getElementById("logs");
+<!-- ─── INTRUSION ALERT BANNER ──────────────────────────────────────── -->
+<div id="intrusion-alert">
+  <div class="alert-header">
+    <div class="alert-title">
+      <span class="alert-blink">🚨</span>
+      <span>SECURITY ALERT — RESTRICTED ZONE INTRUSION</span>
+    </div>
+  </div>
+  <div class="alert-body" id="alert-body">
+    <!-- filled by JS -->
+  </div>
+  <button id="alert-ack-btn" onclick="acknowledgeAlert()">✓ ACKNOWLEDGE</button>
+</div>
 
-    function updateFrame(encoded) {
-      if (encoded) frame.src = `data:image/jpeg;base64,${encoded}`;
+<!-- ─── EVENT DETAIL MODAL ──────────────────────────────────────────── -->
+<div id="modal-overlay" onclick="closeModal(event)">
+  <div id="modal">
+    <button id="modal-close" onclick="closeModal(null)">✕</button>
+    <div id="modal-title">EVENT DETAILS</div>
+    <div id="modal-content"></div>
+  </div>
+</div>
+
+<!-- ─── HEADER ──────────────────────────────────────────────────────── -->
+<header id="header">
+  <div class="header-left">
+    <div class="logo-mark">SC</div>
+    <div class="logo-text">
+      <div class="logo-title">SCOPE</div>
+      <div class="logo-sub">Surveillance Computer Observation &amp; Perception Engine</div>
+    </div>
+  </div>
+  <div class="header-right">
+    <div class="status-pill" id="pill-api">
+      <div class="status-dot" id="dot-api"></div>
+      <span id="label-api">API —</span>
+    </div>
+    <div class="status-pill" id="pill-proc">
+      <div class="status-dot" id="dot-proc"></div>
+      <span id="label-proc">PROCESSING —</span>
+    </div>
+    <div class="status-pill" id="pill-sse">
+      <div class="status-dot" id="dot-sse"></div>
+      <span id="label-sse">LIVE —</span>
+    </div>
+    <button id="sound-toggle" onclick="toggleSound()">🔇 ALERTS OFF</button>
+  </div>
+</header>
+
+<!-- ─── MAIN ─────────────────────────────────────────────────────────── -->
+<div id="main">
+
+  <!-- VIDEO FEED -->
+  <div class="card" id="video-card">
+    <div class="card-header">
+      <span class="card-title">🎥 Live Surveillance Feed</span>
+      <div class="status-pill">
+        <div class="status-dot" id="dot-live-feed"></div>
+        <span id="label-live-feed" style="font-size:10px;letter-spacing:1px;font-weight:700;">WAITING</span>
+      </div>
+    </div>
+    <div id="frame-wrap">
+      <img id="frame-img" alt="" style="display:none;">
+      <div id="frame-empty">
+        <div class="radar-anim"></div>
+        <span style="font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase;">Waiting for Surveillance Frame…</span>
+      </div>
+    </div>
+    <div class="frame-meta">
+      <span class="cam-badge">CAM-01 · DEMO SURVEILLANCE FEED</span>
+      <span id="last-update-text">—</span>
+    </div>
+  </div>
+
+  <!-- LIVE EVENTS SIDEBAR -->
+  <div class="card" id="events-panel">
+    <div class="card-header">
+      <span class="card-title">⚡ Live Events</span>
+      <span style="font-size:10px;color:var(--text-muted);" id="live-event-count">0</span>
+    </div>
+    <div class="card-body" id="events-list-body">
+      <div id="events-empty">
+        <div style="font-size:24px;margin-bottom:8px;">📡</div>
+        <div style="font-weight:600;letter-spacing:1px;margin-bottom:4px;">NO SURVEILLANCE EVENTS</div>
+        <div style="color:var(--text-muted);">Waiting for AI-generated events…</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- STATS ROW -->
+  <div id="stats-row">
+    <div class="stat-card s-persons">
+      <div class="stat-value" id="stat-persons">—</div>
+      <div class="stat-label">Tracked Persons</div>
+    </div>
+    <div class="stat-card s-vehicles">
+      <div class="stat-value" id="stat-vehicles">—</div>
+      <div class="stat-label">Tracked Vehicles</div>
+    </div>
+    <div class="stat-card s-identified">
+      <div class="stat-value" id="stat-identified">—</div>
+      <div class="stat-label">Identified Persons</div>
+    </div>
+    <div class="stat-card s-plates">
+      <div class="stat-value" id="stat-plates">—</div>
+      <div class="stat-label">Plates Read</div>
+    </div>
+    <div class="stat-card s-intrusions">
+      <div class="stat-value" id="stat-intrusions">—</div>
+      <div class="stat-label">Intrusions</div>
+    </div>
+  </div>
+
+  <!-- PIPELINE CARD -->
+  <div class="card" id="pipeline-card">
+    <div class="card-header">
+      <span class="card-title">🔁 AI Processing Pipeline</span>
+    </div>
+    <div class="pipeline-flow">
+      <div class="pipe-step"><div class="pipe-icon">📹</div><div class="pipe-label">CCTV / Video Input</div></div>
+      <div class="pipe-arrow">→</div>
+      <div class="pipe-step"><div class="pipe-icon">🤖</div><div class="pipe-label">YOLOv11 Detection</div></div>
+      <div class="pipe-arrow">→</div>
+      <div class="pipe-step"><div class="pipe-icon">🎯</div><div class="pipe-label">ByteTrack Tracking</div></div>
+      <div class="pipe-arrow">→</div>
+      <div class="pipe-step"><div class="pipe-icon">🔍</div><div class="pipe-label">Face / Vehicle Analysis</div></div>
+      <div class="pipe-arrow">→</div>
+      <div class="pipe-step"><div class="pipe-icon">🔢</div><div class="pipe-label">ANPR / OCR</div></div>
+      <div class="pipe-arrow">→</div>
+      <div class="pipe-step"><div class="pipe-icon">⚙️</div><div class="pipe-label">Rule-Based Event Engine</div></div>
+      <div class="pipe-arrow">→</div>
+      <div class="pipe-step"><div class="pipe-icon">🚨</div><div class="pipe-label">Real-Time Alerts</div></div>
+      <div class="pipe-arrow">→</div>
+      <div class="pipe-step"><div class="pipe-icon">🖥️</div><div class="pipe-label">Command Dashboard</div></div>
+    </div>
+  </div>
+
+  <!-- SIH IMPACT PANEL -->
+  <div class="card" id="sih-card">
+    <div class="card-header">
+      <span class="card-title">🇮🳦 Why SCOPE? — SIH 26187</span>
+    </div>
+    <div class="sih-flow">
+      <div class="sih-step"><div class="sih-step-dot"></div>Existing CCTV Infrastructure</div>
+      <div style="padding-left:3px;color:var(--text-muted);font-size:11px;line-height:1.6;">↓</div>
+      <div class="sih-step"><div class="sih-step-dot"></div>Software-Based AI Analytics</div>
+      <div style="padding-left:3px;color:var(--text-muted);font-size:11px;line-height:1.6;">↓</div>
+      <div class="sih-step"><div class="sih-step-dot"></div>No Dedicated Smart-Camera Hardware</div>
+      <div style="padding-left:3px;color:var(--text-muted);font-size:11px;line-height:1.6;">↓</div>
+      <div class="sih-step"><div class="sih-step-dot"></div>Actionable Surveillance Events</div>
+      <div style="padding-left:3px;color:var(--text-muted);font-size:11px;line-height:1.6;">↓</div>
+      <div class="sih-step"><div class="sih-step-dot"></div>Faster Operator Awareness</div>
+      <div style="padding-left:3px;color:var(--text-muted);font-size:11px;line-height:1.6;">↓</div>
+      <div class="sih-step"><div class="sih-step-dot" style="background:var(--green);"></div>AI-Assisted Border Surveillance</div>
+    </div>
+  </div>
+
+  <!-- SYSTEM STATUS -->
+  <div class="card" id="status-card">
+    <div class="card-header">
+      <span class="card-title">📡 System Status</span>
+    </div>
+    <div class="card-body">
+      <div class="sys-row">
+        <span class="sys-row-label">API</span>
+        <span class="sys-row-val">
+          <div class="status-dot" id="sys-dot-api"></div>
+          <span id="sys-label-api">—</span>
+        </span>
+      </div>
+      <div class="sys-row">
+        <span class="sys-row-label">Processing Engine</span>
+        <span class="sys-row-val">
+          <div class="status-dot" id="sys-dot-proc"></div>
+          <span id="sys-label-proc">—</span>
+        </span>
+      </div>
+      <div class="sys-row">
+        <span class="sys-row-label">Live Connection</span>
+        <span class="sys-row-val">
+          <div class="status-dot" id="sys-dot-sse"></div>
+          <span id="sys-label-sse">—</span>
+        </span>
+      </div>
+      <div class="sys-row">
+        <span class="sys-row-label">Last Update</span>
+        <span class="sys-row-val mono" id="sys-last-update">—</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- AI CAPABILITIES -->
+  <div class="card" id="ai-cap-card">
+    <div class="card-header">
+      <span class="card-title">⚙️ AI Capabilities</span>
+    </div>
+    <div class="cap-tags">
+      <span class="cap-tag">YOLOv11</span>
+      <span class="cap-tag">ByteTrack</span>
+      <span class="cap-tag">InsightFace</span>
+      <span class="cap-tag">RapidOCR</span>
+      <span class="cap-tag">License Plate Detection</span>
+      <span class="cap-tag">Virtual Fence</span>
+      <span class="cap-tag">Face Recognition</span>
+      <span class="cap-tag">ANPR</span>
+    </div>
+  </div>
+
+  <!-- EVENT HISTORY -->
+  <div class="card" id="history-card">
+    <div class="card-header">
+      <span class="card-title">🗂 Surveillance Event History</span>
+      <span style="font-size:10px;color:var(--text-muted);" id="history-count">0 events</span>
+    </div>
+    <div class="history-toolbar">
+      <input type="text" id="history-search" placeholder="Search track ID, name, plate, type…" oninput="renderHistory()">
+      <div class="filter-btns">
+        <button class="filter-btn active" data-filter="all" onclick="setFilter(this)">All</button>
+        <button class="filter-btn" data-filter="person" onclick="setFilter(this)">Person</button>
+        <button class="filter-btn" data-filter="vehicle" onclick="setFilter(this)">Vehicle</button>
+        <button class="filter-btn" data-filter="face" onclick="setFilter(this)">Face / Identity</button>
+        <button class="filter-btn" data-filter="anpr" onclick="setFilter(this)">ANPR</button>
+        <button class="filter-btn" data-filter="intrusion" onclick="setFilter(this)">Intrusion</button>
+      </div>
+    </div>
+    <div id="history-table-wrap">
+      <div id="history-empty" style="display:none;">
+        <div>NO EVENTS MATCH YOUR FILTER</div>
+      </div>
+      <table id="history-table" style="display:none;">
+        <thead>
+          <tr>
+            <th>Exit Time</th>
+            <th>Type</th>
+            <th>Track ID</th>
+            <th>Class</th>
+            <th>Entry Time</th>
+            <th>License Plate</th>
+            <th>Person / Identity</th>
+            <th>Face Score</th>
+            <th>Intrusion</th>
+          </tr>
+        </thead>
+        <tbody id="history-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- KNOWN IDENTITIES -->
+  <div class="card" id="faces-card">
+    <div class="card-header">
+      <span class="card-title">👤 Known Identities</span>
+      <span style="font-size:10px;color:var(--text-muted);" id="faces-count">Loading…</span>
+    </div>
+    <div id="faces-grid">
+      <div id="faces-empty" style="display:none;">
+        NO REGISTERED IDENTITIES
+      </div>
+    </div>
+  </div>
+
+</div><!-- /#main -->
+
+<script>
+/* ═══════════════════════════════════════════════════════════════════════
+   SCOPE Dashboard — app.js (inline)
+   
+   API:
+     GET /health  → { status, processing }
+     GET /frame   → { content_type, frame_base64 }
+     GET /logs    → { events: [...] }
+     GET /faces   → { faces: [{ name, image_filename, content_type, image_base64 }] }
+     GET /live    → SSE: { frame_base64, events: [...] }
+   
+   Event schema (from sample.py):
+     { track_id, class, entry_time, exit_time, license_plate,
+       person_name, face_confidence, intrusion, overlap_ratio }
+   
+   /live sends FULL event list on each update — NO delta appending.
+═══════════════════════════════════════════════════════════════════════ */
+
+// ─── STATE ───────────────────────────────────────────────────────────
+let allEvents = [];          // authoritative event list from backend
+let currentFilter = 'all';
+let alertSoundEnabled = false;
+let acknowledgedAlerts = new Set();
+let currentAlertKey = null;
+let eventSource = null;
+let sseConnected = false;
+let lastUpdateTime = null;
+let faceMap = {};            // name → { content_type, image_base64 }
+
+// ─── SOUND ───────────────────────────────────────────────────────────
+try {
+  const savedSound = localStorage.getItem('scope_sound');
+  if (savedSound === 'on') alertSoundEnabled = true;
+} catch(_) {}
+
+function toggleSound() {
+  alertSoundEnabled = !alertSoundEnabled;
+  try { localStorage.setItem('scope_sound', alertSoundEnabled ? 'on' : 'off'); } catch(_) {}
+  document.getElementById('sound-toggle').textContent =
+    alertSoundEnabled ? '🔊 ALERTS ON' : '🔇 ALERTS OFF';
+}
+
+document.getElementById('sound-toggle').textContent =
+  alertSoundEnabled ? '🔊 ALERTS ON' : '🔇 ALERTS OFF';
+
+function playAlertSound() {
+  if (!alertSoundEnabled) return;
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    // Short alert beep sequence
+    [0, 0.3, 0.6].forEach(offset => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.type = 'square';
+      osc.frequency.value = 880;
+      gain.gain.setValueAtTime(0.15, ctx.currentTime + offset);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + offset + 0.2);
+      osc.start(ctx.currentTime + offset);
+      osc.stop(ctx.currentTime + offset + 0.25);
+    });
+  } catch(_) {}
+}
+
+// ─── INTRUSION ALERT ─────────────────────────────────────────────────
+function showIntrusionAlert(ev) {
+  const key = makeEventKey(ev);
+  if (acknowledgedAlerts.has(key)) return;
+  currentAlertKey = key;
+
+  const body = document.getElementById('alert-body');
+  body.innerHTML = `
+    <strong>Track ID:</strong> #${ev.track_id}<br>
+    <strong>Object:</strong> ${(ev.class || 'UNKNOWN').toUpperCase()}<br>
+    <strong>Time:</strong> ${ev.exit_time || ev.entry_time || '—'}<br>
+    ${ev.overlap_ratio > 0 ? `<strong>Zone Overlap:</strong> ${(ev.overlap_ratio * 100).toFixed(0)}%<br>` : ''}
+  `;
+
+  document.getElementById('intrusion-alert').classList.add('active');
+  playAlertSound();
+}
+
+function hideIntrusionAlert() {
+  document.getElementById('intrusion-alert').classList.remove('active');
+}
+
+function acknowledgeAlert() {
+  if (currentAlertKey) acknowledgedAlerts.add(currentAlertKey);
+  hideIntrusionAlert();
+  currentAlertKey = null;
+}
+
+// ─── EVENT KEY (for deduplication) ───────────────────────────────────
+function makeEventKey(ev) {
+  // Unique key combining stable fields
+  return `${ev.track_id}|${ev.entry_time}|${ev.class}`;
+}
+
+// ─── CLASSIFY EVENT TYPE ──────────────────────────────────────────────
+function classifyEvent(ev) {
+  if (ev.intrusion === true) return 'intrusion';
+  if (ev.person_name && ev.person_name !== 'Unknown' && ev.person_name !== null) return 'face';
+  if (ev.license_plate) return 'anpr';
+  const cls = (ev.class || '').toLowerCase();
+  if (cls === 'person') return 'person';
+  return 'vehicle'; // car, motorcycle, bus, truck
+}
+
+// ─── FORMAT TIME (strip date portion) ────────────────────────────────
+function fmtTime(ts) {
+  if (!ts) return '—';
+  // "2025-01-01 14:32:10" → "14:32:10"
+  const parts = ts.split(' ');
+  return parts.length >= 2 ? parts[1] : ts;
+}
+
+function nowTimeStr() {
+  return new Date().toLocaleTimeString('en-GB', { hour12: false });
+}
+
+// ─── LIVE EVENT SIDEBAR ───────────────────────────────────────────────
+const MAX_LIVE_EVENTS = 60;
+
+function renderLiveEvents() {
+  const body = document.getElementById('events-list-body');
+  const empty = document.getElementById('events-empty');
+  const countEl = document.getElementById('live-event-count');
+
+  // Show most recent events at top
+  const sorted = [...allEvents].reverse().slice(0, MAX_LIVE_EVENTS);
+  countEl.textContent = allEvents.length;
+
+  if (sorted.length === 0) {
+    empty.style.display = '';
+    // Remove any event cards
+    Array.from(body.querySelectorAll('.event-card')).forEach(c => c.remove());
+    return;
+  }
+
+  empty.style.display = 'none';
+
+  // Build set of existing keys
+  const existing = new Map();
+  body.querySelectorAll('.event-card[data-key]').forEach(el => {
+    existing.set(el.dataset.key, el);
+  });
+
+  // Rebuild list (prepend new, keep existing if same)
+  // For performance: clear and re-render only if count changed significantly
+  const newKeys = sorted.map(makeEventKey);
+  const existingKeys = [...existing.keys()];
+  const needsRebuild = newKeys.join(',') !== existingKeys.join(',');
+
+  if (!needsRebuild) return;
+
+  // Clear existing cards
+  body.querySelectorAll('.event-card').forEach(c => c.remove());
+
+  sorted.forEach(ev => {
+    const card = buildEventCard(ev);
+    body.appendChild(card);
+  });
+}
+
+function buildEventCard(ev) {
+  const type = classifyEvent(ev);
+  const key = makeEventKey(ev);
+
+  const iconMap = {
+    person: '👤', vehicle: '🚗', face: '👤', anpr: '🔢', intrusion: '🚨'
+  };
+  const labelMap = {
+    person: 'PERSON TRACKED', vehicle: 'VEHICLE TRACKED',
+    face: 'FACE IDENTIFIED', anpr: 'ANPR RESULT', intrusion: '⚠ INTRUSION ALERT'
+  };
+  const colorMap = {
+    person: 'ev-person', vehicle: 'ev-vehicle',
+    face: 'ev-face', anpr: 'ev-anpr', intrusion: 'ev-intrusion'
+  };
+
+  const card = document.createElement('div');
+  card.className = `event-card ${colorMap[type]}`;
+  card.dataset.key = key;
+
+  let detailHTML = `Track ID <strong>#${ev.track_id}</strong>`;
+
+  if (ev.exit_time) detailHTML += `<br>Exit: <strong>${ev.exit_time}</strong>`;
+  if (ev.entry_time) detailHTML += `<br>Entry: <strong>${ev.entry_time}</strong>`;
+
+  if (type === 'anpr' && ev.license_plate) {
+    detailHTML += `<br><span class="plate-badge">${ev.license_plate}</span>`;
+  }
+  if ((type === 'face') && ev.person_name) {
+    detailHTML += `<br><span class="name-badge">${ev.person_name.toUpperCase()}</span>`;
+    if (ev.face_confidence && ev.face_confidence > 0) {
+      detailHTML += `<br>Match Score: <strong>${ev.face_confidence.toFixed(2)}</strong>`;
+    }
+    // Show face image if available
+    if (faceMap[ev.person_name]) {
+      const f = faceMap[ev.person_name];
+      detailHTML += `<br><img src="data:${f.content_type};base64,${f.image_base64}"
+        style="width:48px;height:48px;object-fit:cover;border-radius:50%;border:2px solid var(--cyan);margin-top:6px;display:block;">`;
+    }
+  }
+  if (type === 'intrusion') {
+    if (ev.overlap_ratio > 0) {
+      detailHTML += `<br>Zone Overlap: <strong>${(ev.overlap_ratio * 100).toFixed(0)}%</strong>`;
+    }
+    detailHTML += `<br>Object: <strong>${(ev.class || '').toUpperCase()}</strong>`;
+  }
+
+  card.innerHTML = `
+    <div class="event-type-row">
+      <span class="event-icon">${iconMap[type]}</span>
+      <span class="event-type-label">${labelMap[type]}</span>
+      <span class="event-time">${fmtTime(ev.exit_time || ev.entry_time)}</span>
+    </div>
+    <div class="event-detail">${detailHTML}</div>
+  `;
+
+  card.addEventListener('click', () => openModal(ev));
+  return card;
+}
+
+// ─── STATISTICS ───────────────────────────────────────────────────────
+function updateStats() {
+  if (allEvents.length === 0) {
+    ['persons','vehicles','identified','plates','intrusions'].forEach(k =>
+      document.getElementById('stat-' + k).textContent = '—'
+    );
+    return;
+  }
+
+  const vehicleClasses = new Set(['car','motorcycle','bus','truck']);
+  let persons = 0, vehicles = 0, identified = 0, plates = 0, intrusions = 0;
+
+  allEvents.forEach(ev => {
+    const cls = (ev.class || '').toLowerCase();
+    if (cls === 'person') persons++;
+    if (vehicleClasses.has(cls)) vehicles++;
+    if (ev.person_name && ev.person_name !== 'Unknown' && ev.person_name !== null) identified++;
+    if (ev.license_plate) plates++;
+    if (ev.intrusion === true) intrusions++;
+  });
+
+  document.getElementById('stat-persons').textContent = persons;
+  document.getElementById('stat-vehicles').textContent = vehicles;
+  document.getElementById('stat-identified').textContent = identified;
+  document.getElementById('stat-plates').textContent = plates;
+  document.getElementById('stat-intrusions').textContent = intrusions;
+}
+
+// ─── HISTORY TABLE ────────────────────────────────────────────────────
+const vehicleClasses = new Set(['car','motorcycle','bus','truck']);
+
+function setFilter(btn) {
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  currentFilter = btn.dataset.filter;
+  renderHistory();
+}
+
+function matchesFilter(ev, filter) {
+  if (filter === 'all') return true;
+  const cls = (ev.class || '').toLowerCase();
+  const type = classifyEvent(ev);
+  if (filter === 'person') return cls === 'person';
+  if (filter === 'vehicle') return vehicleClasses.has(cls);
+  if (filter === 'face') return type === 'face';
+  if (filter === 'anpr') return !!ev.license_plate;
+  if (filter === 'intrusion') return ev.intrusion === true;
+  return true;
+}
+
+function matchesSearch(ev, query) {
+  if (!query) return true;
+  const q = query.toLowerCase();
+  const fields = [
+    String(ev.track_id || ''),
+    ev.person_name || '',
+    ev.license_plate || '',
+    ev.class || '',
+    ev.entry_time || '',
+    ev.exit_time || '',
+    classifyEvent(ev),
+  ].map(f => f.toLowerCase());
+  return fields.some(f => f.includes(q));
+}
+
+function renderHistory() {
+  const query = document.getElementById('history-search').value.trim();
+  const tbody = document.getElementById('history-tbody');
+  const table = document.getElementById('history-table');
+  const empty = document.getElementById('history-empty');
+  const countEl = document.getElementById('history-count');
+
+  const filtered = [...allEvents].reverse().filter(ev =>
+    matchesFilter(ev, currentFilter) && matchesSearch(ev, query)
+  );
+
+  countEl.textContent = `${filtered.length} event${filtered.length !== 1 ? 's' : ''}`;
+
+  if (filtered.length === 0) {
+    table.style.display = 'none';
+    empty.style.display = '';
+    return;
+  }
+
+  table.style.display = '';
+  empty.style.display = 'none';
+
+  tbody.innerHTML = '';
+  filtered.forEach(ev => {
+    const type = classifyEvent(ev);
+    const chipClass = {
+      person: 'chip-person', vehicle: 'chip-vehicle',
+      face: 'chip-face', anpr: 'chip-anpr', intrusion: 'chip-intrusion'
+    }[type];
+    const chipLabel = {
+      person: '👤 Person', vehicle: '🚗 Vehicle',
+      face: '👤 Face ID', anpr: '🔢 ANPR', intrusion: '🚨 Intrusion'
+    }[type];
+
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${ev.exit_time || '—'}</td>
+      <td><span class="type-chip ${chipClass}">${chipLabel}</span></td>
+      <td class="mono">#${ev.track_id}</td>
+      <td>${(ev.class || '—').toUpperCase()}</td>
+      <td>${ev.entry_time || '—'}</td>
+      <td>${ev.license_plate ? `<span class="plate-text">${ev.license_plate}</span>` : '—'}</td>
+      <td>${ev.person_name && ev.person_name !== 'Unknown' ? `<span class="name-text">${ev.person_name}</span>` : (ev.person_name === 'Unknown' ? '<span style="color:var(--text-muted)">Unknown</span>' : '—')}</td>
+      <td>${ev.face_confidence > 0 ? ev.face_confidence.toFixed(2) : '—'}</td>
+      <td>${ev.intrusion === true ? '<span style="color:var(--red);font-weight:700;">YES</span>' : '<span style="color:var(--text-muted)">NO</span>'}</td>
+    `;
+    tr.addEventListener('click', () => openModal(ev));
+    tbody.appendChild(tr);
+  });
+}
+
+// ─── EVENT DETAIL MODAL ───────────────────────────────────────────────
+function openModal(ev) {
+  const content = document.getElementById('modal-content');
+  const fields = [
+    ['Track ID', `#${ev.track_id}`],
+    ['Class', (ev.class || '—').toUpperCase()],
+    ['Entry Time', ev.entry_time || null],
+    ['Exit Time', ev.exit_time || null],
+    ['License Plate', ev.license_plate || null],
+    ['Person / Identity', ev.person_name || null],
+    ['Face Match Score', ev.face_confidence > 0 ? ev.face_confidence.toFixed(2) : null],
+    ['Intrusion', ev.intrusion === true ? '⚠ YES' : 'No'],
+    ['Zone Overlap', ev.overlap_ratio > 0 ? `${(ev.overlap_ratio * 100).toFixed(0)}%` : null],
+  ];
+
+  content.innerHTML = fields
+    .filter(([, v]) => v !== null && v !== undefined && v !== '')
+    .map(([k, v]) => `
+      <div class="modal-field">
+        <span class="modal-key">${k}</span>
+        <span class="modal-val">${v}</span>
+      </div>
+    `).join('');
+
+  document.getElementById('modal-overlay').classList.add('active');
+}
+
+function closeModal(e) {
+  if (e && e.target !== document.getElementById('modal-overlay')) return;
+  document.getElementById('modal-overlay').classList.remove('active');
+}
+
+// ─── FRAME UPDATE ─────────────────────────────────────────────────────
+function updateFrame(b64) {
+  if (!b64) return;
+  const img = document.getElementById('frame-img');
+  const empty = document.getElementById('frame-empty');
+  img.src = `data:image/jpeg;base64,${b64}`;
+  img.style.display = 'block';
+  empty.style.display = 'none';
+
+  // Update live feed indicator
+  document.getElementById('dot-live-feed').className = 'status-dot green';
+  document.getElementById('label-live-feed').textContent = 'LIVE';
+
+  lastUpdateTime = nowTimeStr();
+  document.getElementById('last-update-text').textContent = `Last update: ${lastUpdateTime}`;
+  document.getElementById('sys-last-update').textContent = lastUpdateTime;
+}
+
+// ─── EVENT LIST UPDATE (replaces state — no delta appending) ──────────
+let _knownIntrusionKeys = new Set();
+
+function updateEvents(events) {
+  if (!Array.isArray(events)) return;
+
+  // Replace entire state
+  allEvents = events;
+
+  // Check for new intrusion events
+  events.forEach(ev => {
+    if (ev.intrusion === true) {
+      const key = makeEventKey(ev);
+      if (!_knownIntrusionKeys.has(key)) {
+        _knownIntrusionKeys.add(key);
+        showIntrusionAlert(ev);
+      }
+    }
+  });
+
+  renderLiveEvents();
+  updateStats();
+  renderHistory();
+}
+
+// ─── STATUS UPDATE ────────────────────────────────────────────────────
+function setApiStatus(online, processing) {
+  // Header pills
+  const dotApi = document.getElementById('dot-api');
+  const labelApi = document.getElementById('label-api');
+  const dotProc = document.getElementById('dot-proc');
+  const labelProc = document.getElementById('label-proc');
+  // System card
+  const sysDotApi = document.getElementById('sys-dot-api');
+  const sysLabelApi = document.getElementById('sys-label-api');
+  const sysDotProc = document.getElementById('sys-dot-proc');
+  const sysLabelProc = document.getElementById('sys-label-proc');
+
+  if (online) {
+    dotApi.className = 'status-dot green';
+    labelApi.textContent = 'API ONLINE';
+    sysDotApi.className = 'status-dot green';
+    sysLabelApi.textContent = 'ONLINE';
+  } else {
+    dotApi.className = 'status-dot red';
+    labelApi.textContent = 'API OFFLINE';
+    sysDotApi.className = 'status-dot red';
+    sysLabelApi.textContent = 'OFFLINE';
+  }
+
+  if (processing) {
+    dotProc.className = 'status-dot green';
+    labelProc.textContent = 'PROCESSING ACTIVE';
+    sysDotProc.className = 'status-dot green';
+    sysLabelProc.textContent = 'ACTIVE';
+  } else if (online) {
+    dotProc.className = 'status-dot amber';
+    labelProc.textContent = 'PROCESSING INACTIVE';
+    sysDotProc.className = 'status-dot amber';
+    sysLabelProc.textContent = 'INACTIVE';
+  } else {
+    dotProc.className = 'status-dot';
+    labelProc.textContent = 'PROCESSING —';
+    sysDotProc.className = 'status-dot';
+    sysLabelProc.textContent = '—';
+  }
+}
+
+function setSseStatus(connected) {
+  sseConnected = connected;
+  const dot = document.getElementById('dot-sse');
+  const label = document.getElementById('label-sse');
+  const sysDot = document.getElementById('sys-dot-sse');
+  const sysLabel = document.getElementById('sys-label-sse');
+
+  if (connected) {
+    dot.className = 'status-dot green';
+    label.textContent = 'LIVE CONNECTED';
+    sysDot.className = 'status-dot green';
+    sysLabel.textContent = 'CONNECTED';
+  } else {
+    dot.className = 'status-dot red';
+    label.textContent = 'LIVE DISCONNECTED';
+    sysDot.className = 'status-dot red';
+    sysLabel.textContent = 'DISCONNECTED';
+  }
+}
+
+// ─── HEALTH POLLING ───────────────────────────────────────────────────
+function fetchWithTimeout(url, ms) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  return fetch(url, { signal: ctrl.signal }).finally(() => clearTimeout(timer));
+}
+
+async function pollHealth() {
+  try {
+    const res = await fetchWithTimeout('/health', 5000);
+    if (!res.ok) throw new Error('not ok');
+    const data = await res.json();
+    setApiStatus(true, data.processing === true);
+  } catch(_) {
+    setApiStatus(false, false);
+  }
+}
+
+// Poll health every 10s
+pollHealth();
+setInterval(pollHealth, 10000);
+
+// ─── FACES ───────────────────────────────────────────────────────────
+async function loadFaces() {
+  const grid = document.getElementById('faces-grid');
+  const faceEmpty = document.getElementById('faces-empty');
+  const countEl = document.getElementById('faces-count');
+
+  try {
+    const res = await fetch('/faces');
+    if (!res.ok) throw new Error('faces fetch failed');
+    const data = await res.json();
+    const faces = data.faces || [];
+
+    countEl.textContent = `${faces.length} registered`;
+
+    // Build faceMap for event-card matching
+    faces.forEach(f => {
+      if (f.name && f.image_base64) {
+        faceMap[f.name] = { content_type: f.content_type, image_base64: f.image_base64 };
+      }
+    });
+
+    // Remove existing tiles
+    grid.querySelectorAll('.face-tile').forEach(t => t.remove());
+
+    if (faces.length === 0) {
+      faceEmpty.style.display = '';
+      return;
     }
 
-    function updateLogs(events) {
-      logs.textContent = JSON.stringify(events || [], null, 2);
+    faceEmpty.style.display = 'none';
+    faces.forEach(f => {
+      const tile = document.createElement('div');
+      tile.className = 'face-tile';
+
+      if (f.image_base64) {
+        tile.innerHTML = `
+          <img class="face-photo"
+               src="data:${f.content_type};base64,${f.image_base64}"
+               alt="${f.name}">
+          <div class="face-name">${f.name}</div>
+        `;
+      } else {
+        tile.innerHTML = `
+          <div class="face-no-photo">👤</div>
+          <div class="face-name">${f.name}</div>
+        `;
+      }
+      grid.appendChild(tile);
+    });
+  } catch(_) {
+    countEl.textContent = '—';
+    faceEmpty.style.display = '';
+    faceEmpty.textContent = 'COULD NOT LOAD IDENTITIES';
+  }
+}
+
+// ─── INITIAL DATA LOAD ────────────────────────────────────────────────
+async function loadInitialData() {
+  // Load frame
+  try {
+    const res = await fetch('/frame');
+    if (res.ok) {
+      const data = await res.json();
+      if (data.frame_base64) updateFrame(data.frame_base64);
     }
+  } catch(_) {}
 
-    fetch("/faces")
-      .then(response => response.json())
-      .then(data => {
-        faces.replaceChildren();
-        data.faces.forEach(face => {
-          const item = document.createElement("li");
-          item.textContent = face.name;
-          if (face.image_base64) {
-            const image = document.createElement("img");
-            image.src = `data:${face.content_type};base64,${face.image_base64}`;
-            image.alt = face.name;
-            image.width = 100;
-            item.append(" ", image);
-          }
-          faces.appendChild(item);
-        });
-      });
+  // Load logs
+  try {
+    const res = await fetch('/logs');
+    if (res.ok) {
+      const data = await res.json();
+      updateEvents(data.events || []);
+    }
+  } catch(_) {}
 
-    fetch("/frame")
-      .then(response => response.ok ? response.json() : null)
-      .then(data => data && updateFrame(data.frame_base64));
+  // Load faces
+  await loadFaces();
+}
 
-    fetch("/logs")
-      .then(response => response.json())
-      .then(data => updateLogs(data.events));
+loadInitialData();
 
-    const live = new EventSource("/live");
-    live.onmessage = event => {
-      const data = JSON.parse(event.data);
-      updateFrame(data.frame_base64);
-      updateLogs(data.events);
+// ─── SSE — /live ──────────────────────────────────────────────────────
+let _sseReconnectTimer = null;
+
+function connectSSE() {
+  if (eventSource) {
+    eventSource.close();
+    eventSource = null;
+  }
+  if (_sseReconnectTimer) {
+    clearTimeout(_sseReconnectTimer);
+    _sseReconnectTimer = null;
+  }
+
+  setSseStatus(false);
+
+  try {
+    eventSource = new EventSource('/live');
+
+    eventSource.onopen = () => {
+      setSseStatus(true);
     };
-  </script>
+
+    eventSource.onmessage = (e) => {
+      try {
+        const payload = JSON.parse(e.data);
+        if (payload.frame_base64) updateFrame(payload.frame_base64);
+        if (Array.isArray(payload.events)) updateEvents(payload.events);
+      } catch(_) {}
+    };
+
+    eventSource.onerror = () => {
+      setSseStatus(false);
+      eventSource.close();
+      eventSource = null;
+      // Reconnect after 3s
+      _sseReconnectTimer = setTimeout(connectSSE, 3000);
+    };
+  } catch(_) {
+    setSseStatus(false);
+    _sseReconnectTimer = setTimeout(connectSSE, 5000);
+  }
+}
+
+connectSSE();
+
+// Clean up on page unload
+window.addEventListener('beforeunload', () => {
+  if (eventSource) eventSource.close();
+  if (_sseReconnectTimer) clearTimeout(_sseReconnectTimer);
+});
+
+// ─── KEYBOARD ────────────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    document.getElementById('modal-overlay').classList.remove('active');
+    acknowledgeAlert();
+  }
+});
+</script>
 </body>
 </html>
