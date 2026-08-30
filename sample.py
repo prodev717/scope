@@ -1,996 +1,382 @@
 import os
 import cv2
 import json
+import queue
+import re
+import threading
 import time
+from collections import Counter
 import numpy as np
-import torch
-
-from PIL import Image
-from ultralytics import YOLO
 from insightface.app import FaceAnalysis
 from rapidocr_onnxruntime import RapidOCR
-from transformers import AutoProcessor, AutoModel
+from shapely.geometry import Polygon
+from ultralytics import YOLO
 
-    
-# ============================================================
-# CONFIGURATION
-# ============================================================
-
-VIDEO_PATH = "sample.mp4"
-
-VIRTUAL_FENCE_ENABLED = False
-
-# 4-point virtual fence polygon in image coordinates.
-# Points are ordered clockwise or counter-clockwise.
-VIRTUAL_FENCE_POINTS = [
-    (100, 100),
-    (500, 100),
-    (500, 400),
-    (100, 400),
-]
+# --- CONFIGURATION ---
+VIDEO_PATH = "face.mpg"  # Input video file path
+DATABASE_PATH = "face_database.npz"  # Pre-saved face embeddings file
+JSON_LOG_PATH = "live_surveillance_log.json"
 
 YOLO_MODEL = "yolo11n.pt"
+PLATE_MODEL = "license-plate-finetune-v1n.pt"
 
-SIGLIP_MODEL = "google/siglip-base-patch16-224"
+DETECTION_CONF = 0.50
+PLATE_CONF = 0.25
+FACE_SIMILARITY_THRESHOLD = 0.40
 
-KNOWN_FACES_DIR = "known_faces"
+# --- VIRTUAL FENCE CONFIGURATION ---
+ENABLE_VIRTUAL_FENCE = True  # Toggle Virtual Fence feature on/off
+OVERLAP_THRESHOLD = 0.30     # Minimum area fraction overlap required to trigger intrusion (0.0 to 1.0)
 
-EVENT_DIR = "events"
+# Define 4-point polygon coordinates (x, y) relative to raw video frame size
+VIRTUAL_FENCE_PTS = np.array([
+    [200, 150],  # Top-Left
+    [760, 150],  # Top-Right
+    [850, 480],  # Bottom-Right
+    [100, 480]   # Bottom-Left
+], np.int32)
 
-DISPLAY_SIZE = (960, 540)
+TRACK_IMG_SIZE = 640
+PLATE_IMG_SIZE = 320
 
-YOLO_CONF = 0.50
+OCR_COOLDOWN = 1.0
+FACE_COOLDOWN = 0.5
+BUFFER_FRAMES = 30
+FRAME_SKIP = 1
 
-# Run expensive models periodically
-FACE_INTERVAL = 5
-OCR_INTERVAL = 10
-SIGLIP_INTERVAL = 15
+DISPLAY_WIDTH = 960
+DISPLAY_HEIGHT = 540
 
-# Face recognition threshold
-FACE_THRESHOLD = 0.45
+# Class maps
+VEHICLE_CLASSES = {2, 3, 5, 7}  # car, motorcycle, bus, truck
+PERSON_CLASS = 0
+TRACK_CLASSES = [0, 2, 3, 5, 7]  # person + vehicles
 
-# SigLIP event threshold
-SIGLIP_THRESHOLD = 0.40
+# Pre-build Shapely polygon for geometric calculations
+FENCE_POLYGON = Polygon(VIRTUAL_FENCE_PTS) if ENABLE_VIRTUAL_FENCE else None
 
+# --- HARDWARE ACCELERATION SETUP ---
+device = "cuda" if cv2.cuda.getCudaEnabledDeviceCount() > 0 else "cpu"
+face_providers = ["CUDAExecutionProvider", "CPUExecutionProvider"] if device == "cuda" else ["CPUExecutionProvider"]
+print(f"[INFO] Using main device: {device}")
 
-# ============================================================
-# SETUP
-# ============================================================
-
-os.makedirs(EVENT_DIR, exist_ok=True)
-
-device = "cuda" if torch.cuda.is_available() else "cpu"
-
-print(f"[INFO] Device: {device}")
-
-
-# ============================================================
-# YOLO + BYTE TRACK
-# ============================================================
-
-print("[INFO] Loading YOLO...")
-
-yolo = YOLO(YOLO_MODEL)
-
-
-# ============================================================
-# ARCFACE
-# ============================================================
-
-print("[INFO] Loading ArcFace...")
-
-face_app = FaceAnalysis(
-    name="buffalo_l",
-    providers=["CPUExecutionProvider"]
-)
-
-face_app.prepare(
-    ctx_id=0,
-    det_size=(640, 640)
-)
-
-
-# ============================================================
-# RAPIDOCR
-# ============================================================
-
-print("[INFO] Loading OCR...")
-
+# --- MODEL INITIALIZATION ---
+yolo_model = YOLO(YOLO_MODEL).to(device)
+plate_model = YOLO(PLATE_MODEL).to(device)
 ocr = RapidOCR()
 
+face_app = FaceAnalysis(name="buffalo_l", providers=face_providers)
+face_app.prepare(ctx_id=0, det_size=(640, 640))
 
-# ============================================================
-# SIGLIP
-# ============================================================
+# Load face database
+if os.path.exists(DATABASE_PATH):
+    face_data = np.load(DATABASE_PATH)
+    known_embeddings = face_data["embeddings"]
+    known_names = face_data["names"]
+    print(f"[INFO] Loaded {len(known_names)} faces from '{DATABASE_PATH}'")
+else:
+    known_embeddings, known_names = np.array([]), np.array([])
+    print(f"[WARN] Face database '{DATABASE_PATH}' not found. Faces will log as 'Unknown'.")
 
-print("[INFO] Loading SigLIP...")
+# --- STATE MANAGEMENT ---
+active_tracks = {}
+logged_events = []
+pending_ocr = set()
+pending_face = set()
+state_lock = threading.Lock()
 
-processor = AutoProcessor.from_pretrained(SIGLIP_MODEL)
+ocr_queue = queue.Queue(maxsize=30)
+face_queue = queue.Queue(maxsize=30)
+shutdown_event = threading.Event()
 
-siglip = AutoModel.from_pretrained(SIGLIP_MODEL)
+# Clear live log at startup
+with open(JSON_LOG_PATH, "w") as f:
+    json.dump([], f)
 
-siglip = siglip.to(device)
+# --- HELPER FUNCTIONS ---
+def preprocess_plate(crop):
+    if crop is None or crop.shape[1] < 50 or crop.shape[0] < 15:
+        return None
+    crop = cv2.resize(crop, (0, 0), fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
+    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+    return cv2.equalizeHist(gray)
 
-siglip.eval()
+def clean_plate_text(text):
+    if not text:
+        return None
+    cleaned = re.sub(r"[^A-Z0-9]", "", text.upper())
+    return cleaned if len(cleaned) >= 3 else None
 
+def check_intrusion(bbox):
+    """Calculates Area Overlap fraction between bounding box and Virtual Fence polygon."""
+    if not ENABLE_VIRTUAL_FENCE or FENCE_POLYGON is None or not FENCE_POLYGON.is_valid:
+        return False, 0.0
 
-# ============================================================
-# SIGLIP CLASSES
-# ============================================================
+    x1, y1, x2, y2 = bbox
+    box_polygon = Polygon([(x1, y1), (x2, y1), (x2, y2), (x1, y2)])
+    
+    if not box_polygon.is_valid or box_polygon.area == 0:
+        return False, 0.0
 
-SIGLIP_TEXTS = [
-    "a normal person walking",
-    "a person crossing a restricted area",
-    "a person loitering",
-    "a person carrying a suspicious bag",
-    "an abandoned bag",
-    "a vehicle entering a restricted area",
-    "multiple people fighting",
-    "a normal vehicle movement",
-]
+    intersection_area = FENCE_POLYGON.intersection(box_polygon).area
+    overlap_ratio = intersection_area / box_polygon.area
+    
+    return overlap_ratio >= OVERLAP_THRESHOLD, round(overlap_ratio, 2)
 
+def flush_live_log_unlocked():
+    """Writes current logged events directly to JSON file."""
+    with open(JSON_LOG_PATH, "w") as f:
+        json.dump(logged_events, f, indent=4)
 
-# ============================================================
-# KNOWN FACE DATABASE
-# ============================================================
+def emit_logged_event(event):
+    """Append to in-memory event log, print to console, and flush file."""
+    logged_events.append(event)
+    print(json.dumps(event, ensure_ascii=False))
+    flush_live_log_unlocked()
 
-known_faces = {}
-
-
-def load_known_faces():
-
-    if not os.path.exists(KNOWN_FACES_DIR):
-        print("[INFO] No known_faces directory.")
-        return
-
-    for filename in os.listdir(KNOWN_FACES_DIR):
-
-        path = os.path.join(
-            KNOWN_FACES_DIR,
-            filename
-        )
-
-        image = cv2.imread(path)
-
-        if image is None:
+# --- THREAD WORKERS ---
+def ocr_worker():
+    while not shutdown_event.is_set():
+        try:
+            task = ocr_queue.get(timeout=0.1)
+        except queue.Empty:
             continue
+        if task is None:
+            ocr_queue.task_done()
+            break
 
-        faces = face_app.get(image)
+        track_id, vehicle_crop = task
+        try:
+            res = plate_model(vehicle_crop, conf=PLATE_CONF, imgsz=PLATE_IMG_SIZE, verbose=False)[0]
+            if res.boxes and len(res.boxes) > 0:
+                best_idx = res.boxes.conf.argmax().item()
+                px1, py1, px2, py2 = res.boxes.xyxy[best_idx].int().cpu().tolist()
 
-        if not faces:
-            print(f"[WARNING] No face found: {filename}")
+                plate_crop = vehicle_crop[py1:py2, px1:px2]
+                proc = preprocess_plate(plate_crop)
+
+                if proc is not None:
+                    ocr_res, _ = ocr(proc)
+                    if ocr_res:
+                        raw = "".join([line[1] for line in ocr_res if len(line) >= 2])
+                        valid = clean_plate_text(raw)
+                        if valid:
+                            with state_lock:
+                                if track_id in active_tracks:
+                                    t = active_tracks[track_id]
+                                    t["plate_history"].append(valid)
+                                    if len(t["plate_history"]) > 10:
+                                        t["plate_history"].pop(0)
+                                    t["license_plate"] = Counter(t["plate_history"]).most_common(1)[0][0]
+        except Exception:
+            pass
+        finally:
+            with state_lock:
+                pending_ocr.discard(track_id)
+            ocr_queue.task_done()
+
+def face_worker():
+    while not shutdown_event.is_set():
+        try:
+            task = face_queue.get(timeout=0.1)
+        except queue.Empty:
             continue
-
-        # Use largest face
-        face = max(
-            faces,
-            key=lambda x: (x.bbox[2] - x.bbox[0])
-            * (x.bbox[3] - x.bbox[1])
-        )
-
-        embedding = face.embedding
-
-        embedding = embedding / np.linalg.norm(embedding)
-
-        name = os.path.splitext(filename)[0]
-
-        known_faces[name] = embedding
-
-        print(f"[FACE] Registered: {name}")
-
-
-load_known_faces()
-
-
-# ============================================================
-# FACE MATCHING
-# ============================================================
-
-def recognize_face(embedding):
-
-    if not known_faces:
-        return "Unknown", 0.0
-
-    embedding = embedding / np.linalg.norm(embedding)
-
-    best_name = "Unknown"
-    best_score = -1
-
-    for name, known_embedding in known_faces.items():
-
-        score = np.dot(
-            embedding,
-            known_embedding
-        )
-
-        if score > best_score:
-            best_score = score
-            best_name = name
-
-    if best_score >= FACE_THRESHOLD:
-        return best_name, float(best_score)
-
-    return "Unknown", float(best_score)
-
-
-# ============================================================
-# SIGLIP CLASSIFICATION
-# ============================================================
-
-def classify_frame(frame):
-
-    image = Image.fromarray(
-        cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    )
-
-    inputs = processor(
-        text=SIGLIP_TEXTS,
-        images=image,
-        padding="max_length",
-        return_tensors="pt"
-    )
-
-    inputs = {
-        key: value.to(device)
-        for key, value in inputs.items()
-    }
-
-    with torch.no_grad():
-
-        outputs = siglip(**inputs)
-
-    logits = outputs.logits_per_image[0]
-
-    # Custom softmax ranking
-    probabilities = torch.softmax(
-        logits,
-        dim=0
-    )
-
-    index = torch.argmax(probabilities)
-
-    label = SIGLIP_TEXTS[index]
-
-    confidence = probabilities[index].item()
-
-    return label, confidence, probabilities
-
-
-# ============================================================
-# OCR
-# ============================================================
-
-def read_text(image):
-
-    if image is None:
-        return []
-
-    result, _ = ocr(image)
-
-    texts = []
-
-    if result:
-
-        for line in result:
-
-            try:
-
-                text = line[1]
-                score = float(line[2])
-
-                texts.append(
-                    (text, score)
-                )
-
-            except Exception:
-                pass
-
-    return texts
-
-
-# ============================================================
-# EVENT LOGGER
-# ============================================================
-
-def log_event(
-    event_type,
-    frame_number,
-    confidence,
-    details=None,
-    frame=None
-):
-
-    timestamp = time.strftime(
-        "%Y-%m-%d %H:%M:%S"
-    )
-
-    event = {
-        "timestamp": timestamp,
-        "frame": frame_number,
-        "event": event_type,
-        "confidence": round(
-            float(confidence),
-            3
-        ),
-        "details": details or {}
-    }
-
-    print(
-        f"[ALERT] {event_type} "
-        f"| confidence={confidence:.2f}"
-    )
-
-    # JSON event log
-    log_path = os.path.join(
-        EVENT_DIR,
-        "events.jsonl"
-    )
-
-    with open(
-        log_path,
-        "a",
-        encoding="utf-8"
-    ) as f:
-
-        f.write(
-            json.dumps(event)
-            + "\n"
-        )
-
-    # Evidence image
-    if frame is not None:
-
-        filename = (
-            f"{frame_number}_"
-            f"{event_type.replace(' ', '_')}.jpg"
-        )
-
-        path = os.path.join(
-            EVENT_DIR,
-            filename
-        )
-
-        cv2.imwrite(
-            path,
-            frame
-        )
-
-
-# ============================================================
-# VIRTUAL FENCE
-# ============================================================
-
-def point_in_polygon(x, y, points):
-    """Ray-casting algorithm for a point inside a polygon."""
-    inside = False
-    n = len(points)
-
-    for i in range(n):
-        x1, y1 = points[i]
-        x2, y2 = points[(i + 1) % n]
-
-        if ((y1 > y) != (y2 > y)) and (
-            x < (x2 - x1) * (y - y1) / (y2 - y1 + 1e-9) + x1
-        ):
-            inside = not inside
-
-    return inside
-
-
-def segment_intersects_segment(p1, p2, p3, p4):
-    """Returns True if two line segments intersect."""
-
-    def orientation(a, b, c):
-        value = (b[1] - a[1]) * (c[0] - b[0]) - (b[0] - a[0]) * (c[1] - b[1])
-        if abs(value) < 1e-9:
-            return 0
-        return 1 if value > 0 else -1
-
-    o1 = orientation(p1, p2, p3)
-    o2 = orientation(p1, p2, p4)
-    o3 = orientation(p3, p4, p1)
-    o4 = orientation(p3, p4, p2)
-
-    if o1 == 0 and o2 == 0 and o3 == 0 and o4 == 0:
-        return False
-
-    if o1 * o2 <= 0 and o3 * o4 <= 0:
-        return True
-
-    return False
-
-
-def box_overlaps_restricted_zone(x1, y1, x2, y2):
-    """Return True when a box intersects the configured 4-point fence."""
-    if not VIRTUAL_FENCE_ENABLED:
-        return False
-
-    points = VIRTUAL_FENCE_POINTS
-    box_corners = [
-        (x1, y1),
-        (x2, y1),
-        (x2, y2),
-        (x1, y2),
-    ]
-
-    if any(point_in_polygon(px, py, points) for px, py in box_corners):
-        return True
-
-    if any(point_in_polygon(px, py, box_corners) for px, py in points):
-        return True
-
-    for i in range(len(points)):
-        p1 = points[i]
-        p2 = points[(i + 1) % len(points)]
-
-        for j in range(len(box_corners)):
-            q1 = box_corners[j]
-            q2 = box_corners[(j + 1) % len(box_corners)]
-
-            if segment_intersects_segment(p1, p2, q1, q2):
-                return True
-
-    return False
-
-
-def inside_restricted_zone(x, y):
-    if not VIRTUAL_FENCE_ENABLED:
-        return False
-    return point_in_polygon(x, y, VIRTUAL_FENCE_POINTS)
-
-
-# ============================================================
-# VIDEO
-# ============================================================
-
-print("[INFO] Opening video...")
-
+        if task is None:
+            face_queue.task_done()
+            break
+
+        track_id, person_crop = task
+        try:
+            faces = face_app.get(person_crop)
+            if faces:
+                face = max(faces, key=lambda x: (x.bbox[2] - x.bbox[0]) * (x.bbox[3] - x.bbox[1]))
+                embedding = face.embedding
+                embedding = embedding / np.linalg.norm(embedding)
+
+                matched_name = "Unknown"
+                matched_score = 0.0
+
+                if len(known_embeddings) > 0:
+                    similarities = np.dot(known_embeddings, embedding)
+                    best_idx = np.argmax(similarities)
+                    best_score = similarities[best_idx]
+
+                    if best_score >= FACE_SIMILARITY_THRESHOLD:
+                        matched_name = known_names[best_idx]
+                        matched_score = float(best_score)
+
+                with state_lock:
+                    if track_id in active_tracks:
+                        t = active_tracks[track_id]
+                        if matched_name != "Unknown":
+                            t["face_history"].append(matched_name)
+                            t["person_name"] = Counter(t["face_history"]).most_common(1)[0][0]
+                        elif not t["person_name"]:
+                            t["person_name"] = "Unknown"
+                        t["face_confidence"] = round(matched_score, 2)
+        except Exception:
+            pass
+        finally:
+            with state_lock:
+                pending_face.discard(track_id)
+            face_queue.task_done()
+
+# Start background workers
+threading.Thread(target=ocr_worker, daemon=True).start()
+threading.Thread(target=face_worker, daemon=True).start()
+
+# --- MAIN STREAM ENGINE ---
 cap = cv2.VideoCapture(VIDEO_PATH)
+frame_count, fps_start, fps_counter, current_fps = 0, time.time(), 0, 0.0
 
-if not cap.isOpened():
-
-    raise RuntimeError(
-        f"Cannot open video: {VIDEO_PATH}"
-    )
-
-
-frame_number = 0
-
-last_siglip_label = ""
-last_siglip_confidence = 0.0
-
-
-# ============================================================
-# MAIN LOOP
-# ============================================================
-
-while True:
-
+print("[INFO] Processing stream with vehicle plate, face recognition, & virtual fence...")
+while cap.isOpened():
     ret, frame = cap.read()
-
     if not ret:
         break
 
-    frame_number += 1
+    frame_count += 1
+    if frame_count % FRAME_SKIP != 0:
+        continue
+
+    now_str = time.strftime("%Y-%m-%d %H:%M:%S")
+    now_sec = time.time()
+    frame_h, frame_w = frame.shape[:2]
+
+    results = yolo_model.track(
+        frame, tracker="bytetrack.yaml", persist=True,
+        conf=DETECTION_CONF, imgsz=TRACK_IMG_SIZE, classes=TRACK_CLASSES, verbose=False
+    )[0]
+
+    if results.boxes is not None and results.boxes.id is not None:
+        tids = results.boxes.id.int().cpu().tolist()
+        cls_idxs = results.boxes.cls.int().cpu().tolist()
+        confs = results.boxes.conf.cpu().tolist()
+        boxes = results.boxes.xyxy.int().cpu().tolist()
+
+        with state_lock:
+            for tid, c_idx, conf, box in zip(tids, cls_idxs, confs, boxes):
+                obj_cls = results.names[c_idx]
+
+                # Virtual Fence Intersection Check
+                is_intruding, overlap_pct = check_intrusion(box)
+
+                # Init new track entry
+                if tid not in active_tracks:
+                    active_tracks[tid] = {
+                        "class": obj_cls, "entry_time": now_str, "last_seen_time": now_str,
+                        "last_seen_frame": frame_count, "license_plate": None,
+                        "plate_history": [], "last_ocr_time": 0.0,
+                        "person_name": None, "face_confidence": 0.0,
+                        "face_history": [], "last_face_time": 0.0,
+                        "intrusion": is_intruding,
+                        "max_overlap_ratio": overlap_pct
+                    }
+                else:
+                    active_tracks[tid]["last_seen_time"] = now_str
+                    active_tracks[tid]["last_seen_frame"] = frame_count
+                    # Latch intrusion flag if triggered at any point during track lifecycle
+                    if is_intruding:
+                        active_tracks[tid]["intrusion"] = True
+                    active_tracks[tid]["max_overlap_ratio"] = max(active_tracks[tid]["max_overlap_ratio"], overlap_pct)
+
+                x1, y1, x2, y2 = max(0, box[0]), max(0, box[1]), min(frame_w, box[2]), min(frame_h, box[3])
+                crop = frame[y1:y2, x1:x2]
+
+                # Vehicle -> Process License Plate
+                if c_idx in VEHICLE_CLASSES and conf >= 0.70 and crop.size > 0:
+                    track = active_tracks[tid]
+                    if (not track["license_plate"] and tid not in pending_ocr and 
+                            (now_sec - track["last_ocr_time"] >= OCR_COOLDOWN)):
+                        pending_ocr.add(tid)
+                        track["last_ocr_time"] = now_sec
+                        try:
+                            ocr_queue.put_nowait((tid, crop.copy()))
+                        except queue.Full:
+                            pending_ocr.discard(tid)
+
+                # Person -> Process Face Recognition
+                elif c_idx == PERSON_CLASS and crop.size > 0:
+                    track = active_tracks[tid]
+                    if (not track["person_name"] and tid not in pending_face and 
+                            (now_sec - track["last_face_time"] >= FACE_COOLDOWN)):
+                        pending_face.add(tid)
+                        track["last_face_time"] = now_sec
+                        try:
+                            face_queue.put_nowait((tid, crop.copy()))
+                        except queue.Full:
+                            pending_face.discard(tid)
+
+    # Log & Evict Exited Tracks + Live Write to File
+    with state_lock:
+        missing_ids = [tid for tid, data in active_tracks.items() if frame_count - data["last_seen_frame"] > BUFFER_FRAMES]
+        if missing_ids:
+            for tid in missing_ids:
+                info = active_tracks.pop(tid)
+                pending_ocr.discard(tid)
+                pending_face.discard(tid)
+
+                plate = Counter(info["plate_history"]).most_common(1)[0][0] if info["plate_history"] else info["license_plate"]
+                person = Counter(info["face_history"]).most_common(1)[0][0] if info["face_history"] else info["person_name"]
+
+                emit_logged_event({
+                    "track_id": tid,
+                    "class": info["class"],
+                    "entry_time": info["entry_time"],
+                    "exit_time": info["last_seen_time"],
+                    "license_plate": plate,
+                    "person_name": person,
+                    "face_confidence": info["face_confidence"],
+                    "intrusion": info["intrusion"],
+                    "overlap_ratio": info["max_overlap_ratio"]
+                })
+
+    # Performance Monitoring & Drawing Annotations
+    fps_counter += 1
+    if (time.time() - fps_start) >= 1.0:
+        current_fps = fps_counter / (time.time() - fps_start)
+        fps_counter, fps_start = 0, time.time()
 
-    display = frame.copy()
+    annotated = results.plot()
 
+    # Draw Virtual Fence Polygon on frame
+    if ENABLE_VIRTUAL_FENCE:
+        cv2.polylines(annotated, [VIRTUAL_FENCE_PTS], isClosed=True, color=(0, 0, 255), thickness=2)
 
-    # ========================================================
-    # YOLO + BYTE TRACK
-    # ========================================================
+    annotated_resized = cv2.resize(annotated, (DISPLAY_WIDTH, DISPLAY_HEIGHT))
+    cv2.putText(annotated_resized, f"FPS: {current_fps:.1f} | Active Tracks: {len(active_tracks)} | Logged Events: {len(logged_events)}", 
+                (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
 
-    results = yolo.track(
-        frame,
-        tracker="bytetrack.yaml",
-        persist=True,
-        conf=YOLO_CONF,
-        verbose=False
-    )
-
-    result = results[0]
-
-    person_boxes = []
-    vehicle_boxes = []
-
-
-    if result.boxes is not None:
-
-        boxes = result.boxes
-
-        for i in range(len(boxes)):
-
-            cls = int(
-                boxes.cls[i].item()
-            )
-
-            confidence = float(
-                boxes.conf[i].item()
-            )
-
-            x1, y1, x2, y2 = map(
-                int,
-                boxes.xyxy[i].tolist()
-            )
-
-            # Track ID
-            track_id = None
-
-            if boxes.id is not None:
-
-                track_id = int(
-                    boxes.id[i].item()
-                )
-
-
-            # COCO classes
-            #
-            # 0 = person
-            # 2 = car
-            # 3 = motorcycle
-            # 5 = bus
-            # 7 = truck
-
-            if cls == 0:
-
-                person_boxes.append(
-                    (
-                        x1,
-                        y1,
-                        x2,
-                        y2,
-                        track_id
-                    )
-                )
-
-            elif cls in [2, 3, 5, 7]:
-
-                vehicle_boxes.append(
-                    (
-                        x1,
-                        y1,
-                        x2,
-                        y2,
-                        track_id,
-                        cls
-                    )
-                )
-
-
-    # ========================================================
-    # DRAW RESTRICTED AREA
-    # ========================================================
-
-    if VIRTUAL_FENCE_ENABLED:
-        fence_points = np.array(
-            VIRTUAL_FENCE_POINTS,
-            dtype=np.int32
-        )
-
-        cv2.polylines(
-            display,
-            [fence_points],
-            True,
-            (0, 0, 255),
-            2
-        )
-
-        cv2.putText(
-            display,
-            "RESTRICTED ZONE",
-            (VIRTUAL_FENCE_POINTS[0][0] + 10, VIRTUAL_FENCE_POINTS[0][1] + 25),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.6,
-            (0, 0, 255),
-            2
-        )
-
-
-    # ========================================================
-    # PERSON PROCESSING
-    # ========================================================
-
-    for (
-        x1,
-        y1,
-        x2,
-        y2,
-        track_id
-    ) in person_boxes:
-
-        # -----------------------------------------------
-        # Virtual fence
-        # -----------------------------------------------
-
-        cx = (x1 + x2) // 2
-        cy = (y1 + y2) // 2
-
-        intrusion = (
-            box_overlaps_restricted_zone(x1, y1, x2, y2)
-            or inside_restricted_zone(cx, cy)
-        )
-
-        if intrusion:
-
-            log_event(
-                "Intrusion",
-                frame_number,
-                1.0,
-                {
-                    "track_id": track_id,
-                    "object": "person"
-                },
-                frame
-            )
-
-
-        # -----------------------------------------------
-        # Face recognition
-        # -----------------------------------------------
-
-        if frame_number % FACE_INTERVAL == 0:
-
-            crop = frame[
-                max(0, y1):min(frame.shape[0], y2),
-                max(0, x1):min(frame.shape[1], x2)
-            ]
-
-            if crop.size > 0:
-
-                faces = face_app.get(crop)
-
-                for face in faces:
-
-                    name, score = recognize_face(
-                        face.embedding
-                    )
-
-                    fx1, fy1, fx2, fy2 = (
-                        face.bbox.astype(int)
-                    )
-
-                    # Convert face coordinates
-                    # to full-frame coordinates
-
-                    fx1 += x1
-                    fx2 += x1
-                    fy1 += y1
-                    fy2 += y1
-
-                    cv2.rectangle(
-                        display,
-                        (fx1, fy1),
-                        (fx2, fy2),
-                        (255, 0, 255),
-                        2
-                    )
-
-                    cv2.putText(
-                        display,
-                        f"{name} {score:.2f}",
-                        (fx1, max(20, fy1 - 5)),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.5,
-                        (255, 0, 255),
-                        2
-                    )
-
-
-        # Person bounding box
-
-        cv2.rectangle(
-            display,
-            (x1, y1),
-            (x2, y2),
-            (0, 255, 0),
-            2
-        )
-
-        label = "Person"
-
-        if track_id is not None:
-
-            label += f" ID:{track_id}"
-
-        cv2.putText(
-            display,
-            label,
-            (x1, y1 - 8),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.5,
-            (0, 255, 0),
-            2
-        )
-
-
-    # ========================================================
-    # VEHICLE PROCESSING + OCR
-    # ========================================================
-
-    for (
-        x1,
-        y1,
-        x2,
-        y2,
-        track_id,
-        cls
-    ) in vehicle_boxes:
-
-        cx = (x1 + x2) // 2
-        cy = (y1 + y2) // 2
-
-        vehicle_intrusion = (
-            box_overlaps_restricted_zone(x1, y1, x2, y2)
-            or inside_restricted_zone(cx, cy)
-        )
-
-        # -----------------------------------------------
-        # Vehicle intrusion
-        # -----------------------------------------------
-
-        if vehicle_intrusion:
-
-            log_event(
-                "Vehicle Intrusion",
-                frame_number,
-                1.0,
-                {
-                    "track_id": track_id,
-                    "object": "vehicle"
-                },
-                frame
-            )
-
-
-        # -----------------------------------------------
-        # OCR
-        # -----------------------------------------------
-
-        if frame_number % OCR_INTERVAL == 0:
-
-            vehicle_crop = frame[
-                max(0, y1):min(frame.shape[0], y2),
-                max(0, x1):min(frame.shape[1], x2)
-            ]
-
-            if vehicle_crop.size > 0:
-
-                texts_found = read_text(
-                    vehicle_crop
-                )
-
-                for text, score in texts_found:
-
-                    if score > 0.40:
-
-                        plate_text = text.strip()
-
-                        print(
-                            f"[ANPR] "
-                            f"Track {track_id}: "
-                            f"{plate_text} "
-                            f"({score:.2f})"
-                        )
-
-                        log_event(
-                            "Number Plate Read",
-                            frame_number,
-                            score,
-                            {
-                                "track_id": track_id,
-                                "object": "vehicle",
-                                "plate_number": plate_text,
-                                "ocr_score": round(float(score), 3)
-                            },
-                            frame
-                        )
-
-                        cv2.putText(
-                            display,
-                            plate_text,
-                            (x1, y2 + 20),
-                            cv2.FONT_HERSHEY_SIMPLEX,
-                            0.6,
-                            (255, 255, 0),
-                            2
-                        )
-
-
-        # Vehicle box
-
-        cv2.rectangle(
-            display,
-            (x1, y1),
-            (x2, y2),
-            (255, 165, 0),
-            2
-        )
-
-        label = "Vehicle"
-
-        if track_id is not None:
-
-            label += f" ID:{track_id}"
-
-        cv2.putText(
-            display,
-            label,
-            (x1, y1 - 8),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.5,
-            (255, 165, 0),
-            2
-        )
-
-
-    # ========================================================
-    # SIGLIP
-    # ========================================================
-
-    if frame_number % SIGLIP_INTERVAL == 0:
-
-        try:
-
-            (
-                last_siglip_label,
-                last_siglip_confidence,
-                _
-            ) = classify_frame(frame)
-
-            print(
-                f"[SIGLIP] "
-                f"{last_siglip_label} "
-                f"{last_siglip_confidence:.3f}"
-            )
-
-            # Only generate an alert for suspicious
-            # semantic categories.
-
-            suspicious_words = [
-                "restricted",
-                "loitering",
-                "suspicious",
-                "abandoned",
-                "fighting"
-            ]
-
-            is_suspicious = any(
-                word in last_siglip_label.lower()
-                for word in suspicious_words
-            )
-
-            if (
-                is_suspicious
-                and
-                last_siglip_confidence >= SIGLIP_THRESHOLD
-            ):
-
-                log_event(
-                    "Suspicious Activity",
-                    frame_number,
-                    last_siglip_confidence,
-                    {
-                        "description":
-                            last_siglip_label
-                    },
-                    frame
-                )
-
-        except Exception as e:
-
-            print(
-                f"[SIGLIP ERROR] {e}"
-            )
-
-
-    # ========================================================
-    # NIGHT DETECTION
-    # ========================================================
-
-    gray = cv2.cvtColor(
-        frame,
-        cv2.COLOR_BGR2GRAY
-    )
-
-    brightness = float(
-        np.mean(gray)
-    )
-
-    is_night = brightness < 45
-
-    if is_night:
-
-        cv2.putText(
-            display,
-            "NIGHT MODE",
-            (20, 30),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.7,
-            (255, 255, 255),
-            2
-        )
-
-
-    # ========================================================
-    # SIGLIP STATUS
-    # ========================================================
-
-    cv2.putText(
-        display,
-        (
-            f"AI: "
-            f"{last_siglip_label[:45]} "
-            f"{last_siglip_confidence:.2f}"
-        ),
-        (20, display.shape[0] - 20),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.5,
-        (255, 255, 255),
-        2
-    )
-
-
-    # ========================================================
-    # FRAME INFO
-    # ========================================================
-
-    cv2.putText(
-        display,
-        f"Frame: {frame_number}",
-        (20, 60),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.6,
-        (255, 255, 255),
-        2
-    )
-
-    cv2.putText(
-        display,
-        f"Persons: {len(person_boxes)}",
-        (20, 85),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.6,
-        (255, 255, 255),
-        2
-    )
-
-    cv2.putText(
-        display,
-        f"Vehicles: {len(vehicle_boxes)}",
-        (20, 110),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.6,
-        (255, 255, 255),
-        2
-    )
-
-
-    # ========================================================
-    # DISPLAY
-    # ========================================================
-
-    display = cv2.resize(
-        display,
-        DISPLAY_SIZE
-    )
-
-    cv2.imshow(
-        "AI Border Surveillance",
-        display
-    )
-
-    key = cv2.waitKey(1) & 0xFF
-
-    if key == ord("q"):
+    cv2.imshow("Surveillance Analytics (Vehicle + Face)", annotated_resized)
+    if cv2.waitKey(1) & 0xFF == ord("q"):
         break
 
-
-# ============================================================
-# CLEANUP
-# ============================================================
-
+# --- SHUTDOWN & CLEANUP ---
 cap.release()
-
 cv2.destroyAllWindows()
+shutdown_event.set()
 
-print("[INFO] Surveillance stopped.")
+try: ocr_queue.put_nowait(None)
+except queue.Full: pass
+try: face_queue.put_nowait(None)
+except queue.Full: pass
+
+# Final flush of active tracks
+with state_lock:
+    for tid, info in active_tracks.items():
+        plate = Counter(info["plate_history"]).most_common(1)[0][0] if info["plate_history"] else info["license_plate"]
+        person = Counter(info["face_history"]).most_common(1)[0][0] if info["face_history"] else info["person_name"]
+
+        emit_logged_event({
+            "track_id": tid,
+            "class": info["class"],
+            "entry_time": info["entry_time"],
+            "exit_time": info["last_seen_time"],
+            "license_plate": plate,
+            "person_name": person,
+            "face_confidence": info["face_confidence"],
+            "intrusion": info["intrusion"],
+            "overlap_ratio": info["max_overlap_ratio"]
+        })
+
+print(f"[INFO] Processing complete. Total {len(logged_events)} events saved live to '{JSON_LOG_PATH}'.")
