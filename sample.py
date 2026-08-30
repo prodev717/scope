@@ -211,9 +211,13 @@ def face_worker():
                         if matched_name != "Unknown":
                             t["face_history"].append(matched_name)
                             t["person_name"] = Counter(t["face_history"]).most_common(1)[0][0]
+                            t["is_known_person"] = True
                         elif t["person_name"] is None:
                             t["person_name"] = "Unknown"
+                            t["is_known_person"] = False
                         t["face_confidence"] = round(matched_score, 2)
+                        if t["person_name"] not in (None, "Unknown"):
+                            t["intrusion"] = False
         except Exception:
             pass
         finally:
@@ -269,14 +273,15 @@ while cap.isOpened():
                         "plate_history": [], "last_ocr_time": 0.0,
                         "person_name": None, "face_confidence": 0.0,
                         "face_history": [], "last_face_time": 0.0,
-                        "intrusion": is_intruding,
-                        "max_overlap_ratio": overlap_pct
+                        "intrusion": False,
+                        "max_overlap_ratio": overlap_pct,
+                        "is_known_person": False
                     }
                 else:
                     active_tracks[tid]["last_seen_time"] = now_str
                     active_tracks[tid]["last_seen_frame"] = frame_count
                     # Latch intrusion flag if triggered at any point during track lifecycle
-                    if is_intruding:
+                    if is_intruding and not active_tracks[tid].get("is_known_person", False):
                         active_tracks[tid]["intrusion"] = True
                     active_tracks[tid]["max_overlap_ratio"] = max(active_tracks[tid]["max_overlap_ratio"], overlap_pct)
 
@@ -321,6 +326,9 @@ while cap.isOpened():
 
                 plate = Counter(info["plate_history"]).most_common(1)[0][0] if info["plate_history"] else info["license_plate"]
                 person = Counter(info["face_history"]).most_common(1)[0][0] if info["face_history"] else info["person_name"]
+
+                if info["class"] == "person" and person not in (None, "Unknown"):
+                    info["intrusion"] = False
 
                 emit_logged_event({
                     "track_id": tid,
@@ -369,6 +377,9 @@ with state_lock:
     for tid, info in active_tracks.items():
         plate = Counter(info["plate_history"]).most_common(1)[0][0] if info["plate_history"] else info["license_plate"]
         person = Counter(info["face_history"]).most_common(1)[0][0] if info["face_history"] else info["person_name"]
+
+        if info["class"] == "person" and person not in (None, "Unknown"):
+            info["intrusion"] = False
 
         emit_logged_event({
             "track_id": tid,

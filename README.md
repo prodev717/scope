@@ -28,7 +28,7 @@ This is not yet a full production-ready border security system. The architecture
 * Rule-based intrusion and vehicle alerts
 * Night-time movement detection
 * Real-time alerts
-* Event logging with evidence
+* Event logging
 * Centralized monitoring dashboard
 
 ## Technical Details
@@ -50,7 +50,6 @@ This is not yet a full production-ready border security system. The architecture
 6. Person crops are sent to the face recognition pipeline to compare embeddings with known identities.
 7. The system checks whether tracked objects intersect or enter a configured restricted polygon.
 8. If a detection matches a rule, an event is created and saved as a JSON log entry.
-9. The system writes event metadata and evidence snapshots to the local events folder.
 
 ### Rule-Based Event Engine
 
@@ -104,7 +103,7 @@ flowchart TD
     R --> EE
 
     EE --> C[Custom Rule Check]
-    C --> AE[Alert + Evidence]
+    C --> AE[Alert]
     AE --> CD[Central Dashboard]
 ```
 
@@ -153,13 +152,8 @@ flowchart LR
 - The Gap: Detecting a person inside a fence is basic intrusion detection; knowing whether they are loitering, crawling, carrying a weapon or payload, or dropping an object requires temporal and pose-based understanding.
 - Fix: Add pose estimation (for example, YOLO-Pose) to detect crawling, scaling fences, or abandoned objects.
 
-### 2. Dynamic Bandwidth & Edge Optimization
-
-- The Gap: Border posts often have poor or unreliable network links. Sending raw video to a central dashboard will strain network bandwidth.
-- Fix: Process models at the edge on Jetson or similar devices, and send only lightweight JSON metadata plus cropped evidence thumbnails to the central dashboard, streaming full video only on demand.
-
 ## Summary
 
-SCOPE is currently a prototype for rule-based border surveillance analytics. It validates the core workflow of detection, recognition, restricted-area checks, and event logging in a real-world CCTV pipeline. The features below are planned future upgrades to evolve this into a robust, field-ready surveillance intelligence platform.
+SCOPE is currently a prototype for rule-based border surveillance analytics. It validates the core workflow of detection, recognition, restricted-area checks, and event logging in a real-world CCTV pipeline. The features above are planned future upgrades to evolve this into a robust, field-ready surveillance intelligence platform.
 
 This is just a basic prototype and not yet a complete operational surveillance system.
