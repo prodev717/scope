@@ -16,9 +16,68 @@ from fastapi.responses import FileResponse, StreamingResponse
 ROOT = Path(__file__).resolve().parent
 FRAME_PATH = ROOT / "latest_frame.jpg"
 LOG_PATH = ROOT / "live_surveillance_log.json"
+CONFIG_PATH = ROOT / "scope_config.json"
 FACE_DATABASE_PATH = ROOT / "face_database.npz"
 KNOWN_FACES_PATH = ROOT / "known_faces"
+VIDEOS_PATH = ROOT / "videos"
 PROCESS = None
+
+
+def default_config():
+    return {
+        "video_path": "car.mp4",
+        "enable_virtual_fence": False,
+        "fence_points": [
+            [220, 365],
+            [532, 290],
+            [588, 454],
+            [355, 526],
+        ],
+    }
+
+
+def read_config():
+    if not CONFIG_PATH.exists():
+        config = default_config()
+        write_config(config, reset_logs=False)
+        return config
+
+    try:
+        data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        config = default_config()
+        write_config(config, reset_logs=False)
+        return config
+
+    normalized = default_config()
+    for key, value in data.items():
+        if key == "video_path" and isinstance(value, str):
+            normalized[key] = value
+        elif key == "enable_virtual_fence" and isinstance(value, bool):
+            normalized[key] = value
+        elif key == "fence_points" and isinstance(value, list):
+            normalized[key] = [[int(float(x)), int(float(y))] for x, y in value]
+    return normalized
+
+
+def write_config(config, reset_logs=True):
+    normalized = default_config()
+    if isinstance(config, dict):
+        if isinstance(config.get("video_path"), str):
+            normalized["video_path"] = config["video_path"]
+        if isinstance(config.get("enable_virtual_fence"), bool):
+            normalized["enable_virtual_fence"] = config["enable_virtual_fence"]
+        if isinstance(config.get("fence_points"), list):
+            try:
+                normalized["fence_points"] = [
+                    [int(float(x)), int(float(y))] for x, y in config["fence_points"]
+                ]
+            except (TypeError, ValueError):
+                pass
+    CONFIG_PATH.write_text(json.dumps(normalized, indent=2), encoding="utf-8")
+    if reset_logs:
+        LOG_PATH.write_text("[]", encoding="utf-8")
+    return normalized
 
 
 def read_frame_base64():
@@ -70,10 +129,25 @@ def read_face_records():
     return records
 
 
+def start_processing():
+    global PROCESS
+    if PROCESS and PROCESS.poll() is None:
+        PROCESS.terminate()
+        try:
+            PROCESS.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            PROCESS.kill()
+
+    env = os.environ.copy()
+    env["SCOPE_CONFIG_PATH"] = str(CONFIG_PATH)
+    PROCESS = subprocess.Popen([sys.executable, str(ROOT / "sample.py")], cwd=ROOT, env=env)
+    return PROCESS
+
+
 @asynccontextmanager
 async def lifespan(app):
-    global PROCESS
-    PROCESS = subprocess.Popen([sys.executable, str(ROOT / "sample.py")], cwd=ROOT)
+    read_config()
+    start_processing()
     yield
     if PROCESS and PROCESS.poll() is None:
         PROCESS.terminate()
@@ -104,6 +178,34 @@ def frame():
 @app.get("/logs")
 def logs():
     return {"events": read_logs()}
+
+
+@app.get("/videos")
+async def get_all_videos():
+    if not VIDEOS_PATH.exists():
+        raise HTTPException(status_code=404, detail="The specified folder does not exist.")
+    if not VIDEOS_PATH.is_dir():
+        raise HTTPException(status_code=400, detail="The specified path is not a directory.")
+    try:
+        filenames = [file.name for file in VIDEOS_PATH.iterdir() if file.is_file()]
+        return {"total_files": len(filenames), "files": filenames}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+
+
+@app.get("/config")
+def config():
+    return read_config()
+
+
+@app.post("/config")
+def update_config(payload: dict):
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="JSON object required")
+    config = write_config(payload, reset_logs=True)
+    start_processing()
+    return {"status": "ok", "config": config}
 
 
 @app.get("/faces")

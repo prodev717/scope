@@ -235,6 +235,150 @@
       letter-spacing: 1px;
     }
 
+    .config-panel {
+      background: var(--bg2);
+      border-top: var(--border);
+      padding: 14px;
+    }
+
+    .config-form {
+      display: grid;
+      gap: 12px;
+    }
+
+    .config-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px 12px;
+    }
+
+    .config-field {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-size: 11px;
+      color: var(--text-dim);
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+
+    .config-input,
+    .config-select {
+      background: var(--bg3);
+      border: var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      padding: 7px 10px;
+      font-size: 12px;
+      outline: none;
+    }
+
+    .config-input:focus,
+    .config-select:focus {
+      border-color: var(--accent);
+    }
+
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-dim);
+      letter-spacing: 1px;
+      text-transform: uppercase;
+    }
+
+    .config-toggle {
+      width: 16px;
+      height: 16px;
+      accent-color: var(--green);
+    }
+
+    .fence-point-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px 12px;
+    }
+
+    .fence-point {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      background: var(--bg3);
+      border: var(--border);
+      border-radius: 6px;
+      padding: 8px;
+    }
+
+    .fence-point label {
+      font-size: 10px;
+      color: var(--text-muted);
+      font-weight: 700;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+    }
+
+    .fence-point input {
+      width: 100%;
+      background: var(--bg);
+      border: var(--border);
+      color: var(--text);
+      border-radius: 4px;
+      padding: 5px 6px;
+      font-size: 11px;
+    }
+
+    .config-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .btn-primary,
+    .btn-secondary {
+      border-radius: 6px;
+      padding: 7px 12px;
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 1.2px;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent), var(--indigo));
+      border: 1px solid transparent;
+      color: white;
+    }
+
+    .btn-primary:hover { filter: brightness(1.08); }
+
+    .btn-secondary {
+      background: var(--bg3);
+      border: var(--border);
+      color: var(--text-dim);
+    }
+
+    .btn-secondary:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .config-status {
+      min-height: 14px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      color: var(--text-muted);
+    }
+
+    .config-status.success { color: var(--green); }
+    .config-status.error { color: var(--red); }
+
     /* ─── LIVE EVENTS PANEL ────────────────────────────────────────────── */
     #events-panel { grid-column: 2; grid-row: 1 / 3; }
 
@@ -911,6 +1055,53 @@
       <span class="cam-badge">CAM-01 · DEMO SURVEILLANCE FEED</span>
       <span id="last-update-text">—</span>
     </div>
+    <div class="config-panel">
+      <form class="config-form" id="video-config-form">
+        <div class="config-grid">
+          <label class="config-field">
+            Video Source
+            <select id="video-source-select" class="config-select">
+              <option value="">Loading videos…</option>
+            </select>
+          </label>
+          <div class="config-field">
+            Virtual Fence
+            <label class="toggle-row" for="fence-enabled-toggle">
+              <input id="fence-enabled-toggle" class="config-toggle" type="checkbox" />
+              <span>Enabled</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="config-field">
+          Fence Points
+          <div class="fence-point-grid">
+            <div class="fence-point">
+              <label>Pt 1 X<input id="fence-point-0-x" type="number" value="220" /></label>
+              <label>Pt 1 Y<input id="fence-point-0-y" type="number" value="365" /></label>
+            </div>
+            <div class="fence-point">
+              <label>Pt 2 X<input id="fence-point-1-x" type="number" value="532" /></label>
+              <label>Pt 2 Y<input id="fence-point-1-y" type="number" value="290" /></label>
+            </div>
+            <div class="fence-point">
+              <label>Pt 3 X<input id="fence-point-2-x" type="number" value="588" /></label>
+              <label>Pt 3 Y<input id="fence-point-2-y" type="number" value="454" /></label>
+            </div>
+            <div class="fence-point">
+              <label>Pt 4 X<input id="fence-point-3-x" type="number" value="355" /></label>
+              <label>Pt 4 Y<input id="fence-point-3-y" type="number" value="526" /></label>
+            </div>
+          </div>
+        </div>
+
+        <div class="config-actions">
+          <button class="btn-primary" type="submit">Apply Settings</button>
+          <button class="btn-secondary" type="button" id="reset-config-btn">Reset Defaults</button>
+        </div>
+        <div id="config-status" class="config-status" aria-live="polite"></div>
+      </form>
+    </div>
   </div>
 
   <!-- LIVE EVENTS SIDEBAR -->
@@ -952,50 +1143,6 @@
     </div>
   </div>
 
-  <!-- PIPELINE CARD -->
-  <div class="card" id="pipeline-card">
-    <div class="card-header">
-      <span class="card-title">🔁 AI Processing Pipeline</span>
-    </div>
-    <div class="pipeline-flow">
-      <div class="pipe-step"><div class="pipe-icon">📹</div><div class="pipe-label">CCTV / Video Input</div></div>
-      <div class="pipe-arrow">→</div>
-      <div class="pipe-step"><div class="pipe-icon">🤖</div><div class="pipe-label">YOLOv11 Detection</div></div>
-      <div class="pipe-arrow">→</div>
-      <div class="pipe-step"><div class="pipe-icon">🎯</div><div class="pipe-label">ByteTrack Tracking</div></div>
-      <div class="pipe-arrow">→</div>
-      <div class="pipe-step"><div class="pipe-icon">🔍</div><div class="pipe-label">Face / Vehicle Analysis</div></div>
-      <div class="pipe-arrow">→</div>
-      <div class="pipe-step"><div class="pipe-icon">🔢</div><div class="pipe-label">ANPR / OCR</div></div>
-      <div class="pipe-arrow">→</div>
-      <div class="pipe-step"><div class="pipe-icon">⚙️</div><div class="pipe-label">Rule-Based Event Engine</div></div>
-      <div class="pipe-arrow">→</div>
-      <div class="pipe-step"><div class="pipe-icon">🚨</div><div class="pipe-label">Real-Time Alerts</div></div>
-      <div class="pipe-arrow">→</div>
-      <div class="pipe-step"><div class="pipe-icon">🖥️</div><div class="pipe-label">Command Dashboard</div></div>
-    </div>
-  </div>
-
-  <!-- SIH IMPACT PANEL -->
-  <div class="card" id="sih-card">
-    <div class="card-header">
-      <span class="card-title">🇮🳦 Why SCOPE? — SIH 26187</span>
-    </div>
-    <div class="sih-flow">
-      <div class="sih-step"><div class="sih-step-dot"></div>Existing CCTV Infrastructure</div>
-      <div style="padding-left:3px;color:var(--text-muted);font-size:11px;line-height:1.6;">↓</div>
-      <div class="sih-step"><div class="sih-step-dot"></div>Software-Based AI Analytics</div>
-      <div style="padding-left:3px;color:var(--text-muted);font-size:11px;line-height:1.6;">↓</div>
-      <div class="sih-step"><div class="sih-step-dot"></div>No Dedicated Smart-Camera Hardware</div>
-      <div style="padding-left:3px;color:var(--text-muted);font-size:11px;line-height:1.6;">↓</div>
-      <div class="sih-step"><div class="sih-step-dot"></div>Actionable Surveillance Events</div>
-      <div style="padding-left:3px;color:var(--text-muted);font-size:11px;line-height:1.6;">↓</div>
-      <div class="sih-step"><div class="sih-step-dot"></div>Faster Operator Awareness</div>
-      <div style="padding-left:3px;color:var(--text-muted);font-size:11px;line-height:1.6;">↓</div>
-      <div class="sih-step"><div class="sih-step-dot" style="background:var(--green);"></div>AI-Assisted Border Surveillance</div>
-    </div>
-  </div>
-
   <!-- SYSTEM STATUS -->
   <div class="card" id="status-card">
     <div class="card-header">
@@ -1027,23 +1174,6 @@
         <span class="sys-row-label">Last Update</span>
         <span class="sys-row-val mono" id="sys-last-update">—</span>
       </div>
-    </div>
-  </div>
-
-  <!-- AI CAPABILITIES -->
-  <div class="card" id="ai-cap-card">
-    <div class="card-header">
-      <span class="card-title">⚙️ AI Capabilities</span>
-    </div>
-    <div class="cap-tags">
-      <span class="cap-tag">YOLOv11</span>
-      <span class="cap-tag">ByteTrack</span>
-      <span class="cap-tag">InsightFace</span>
-      <span class="cap-tag">RapidOCR</span>
-      <span class="cap-tag">License Plate Detection</span>
-      <span class="cap-tag">Virtual Fence</span>
-      <span class="cap-tag">Face Recognition</span>
-      <span class="cap-tag">ANPR</span>
     </div>
   </div>
 
@@ -1659,8 +1789,158 @@ async function loadFaces() {
   }
 }
 
+function setConfigStatus(message, kind = '') {
+  const statusEl = document.getElementById('config-status');
+  if (!statusEl) return;
+  statusEl.textContent = message;
+  statusEl.className = `config-status${kind ? ` ${kind}` : ''}`;
+}
+
+async function loadVideoOptions(selectedPath = null) {
+  const select = document.getElementById('video-source-select');
+  if (!select) return;
+
+  const fallbackPaths = [];
+  const options = new Set(fallbackPaths);
+
+  try {
+    const res = await fetch('/videos');
+    if (res.ok) {
+      const data = await res.json();
+      const files = Array.isArray(data.files) ? data.files : [];
+      files.forEach(file => {
+        if (file && file.trim()) options.add(`videos/${file}`);
+      });
+    }
+  } catch (_) {}
+
+  const values = [...options];
+  select.innerHTML = '';
+  values.forEach(value => {
+    const option = document.createElement('option');
+    option.value = value;
+    option.textContent = value;
+    select.appendChild(option);
+  });
+
+  const currentValue = selectedPath || 'car.mp4';
+  if (values.includes(currentValue)) {
+    select.value = currentValue;
+  } else if (values.length) {
+    select.value = values[0];
+  }
+}
+
+function populateConfigForm(config) {
+  const videoSelect = document.getElementById('video-source-select');
+  const fenceToggle = document.getElementById('fence-enabled-toggle');
+
+  if (!videoSelect || !fenceToggle) return;
+
+  const selected = config.video_path || 'car.mp4';
+  if (!Array.from(videoSelect.options).some(option => option.value === selected)) {
+    const option = new Option(selected, selected);
+    videoSelect.add(option);
+  }
+  videoSelect.value = selected;
+  fenceToggle.checked = !!config.enable_virtual_fence;
+
+  const points = Array.isArray(config.fence_points) && config.fence_points.length >= 4
+    ? config.fence_points.slice(0, 4)
+    : [[220,365],[532,290],[588,454],[355,526]];
+
+  points.forEach((point, idx) => {
+    const xInput = document.getElementById(`fence-point-${idx}-x`);
+    const yInput = document.getElementById(`fence-point-${idx}-y`);
+    if (xInput) xInput.value = Number(point[0] ?? 0);
+    if (yInput) yInput.value = Number(point[1] ?? 0);
+  });
+}
+
+async function fetchConfig() {
+  try {
+    const res = await fetch('/config');
+    if (!res.ok) throw new Error('Config unavailable');
+    const config = await res.json();
+    await loadVideoOptions(config.video_path || 'car.mp4');
+    populateConfigForm(config);
+    return config;
+  } catch (_) {
+    await loadVideoOptions('car.mp4');
+    populateConfigForm({
+      video_path: 'car.mp4',
+      enable_virtual_fence: false,
+      fence_points: [[220,365],[532,290],[588,454],[355,526]],
+    });
+    return null;
+  }
+}
+
+function readFencePointsFromForm() {
+  const points = [];
+  for (let index = 0; index < 4; index++) {
+    const x = Number(document.getElementById(`fence-point-${index}-x`).value);
+    const y = Number(document.getElementById(`fence-point-${index}-y`).value);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      throw new Error(`Fence point ${index + 1} is invalid`);
+    }
+    points.push([Math.round(x), Math.round(y)]);
+  }
+  return points;
+}
+
+async function applyConfigFromForm() {
+  const videoSelect = document.getElementById('video-source-select');
+  const fenceToggle = document.getElementById('fence-enabled-toggle');
+
+  if (!videoSelect || !fenceToggle) return;
+
+  try {
+    const fencePoints = readFencePointsFromForm();
+    const payload = {
+      video_path: (videoSelect.value || 'car.mp4').trim(),
+      enable_virtual_fence: !!fenceToggle.checked,
+      fence_points: fencePoints,
+    };
+
+    setConfigStatus('Applying configuration…');
+    const res = await fetch('/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(err || 'Unable to apply configuration');
+    }
+
+    const data = await res.json();
+    populateConfigForm(data.config || payload);
+    setConfigStatus('Configuration updated', 'success');
+    if (eventSource) {
+      eventSource.close();
+      eventSource = null;
+    }
+    connectSSE();
+  } catch (error) {
+    setConfigStatus(error.message || 'Invalid configuration', 'error');
+  }
+}
+
+function resetConfigDefaults() {
+  populateConfigForm({
+    video_path: 'car.mp4',
+    enable_virtual_fence: false,
+    fence_points: [[220,365],[532,290],[588,454],[355,526]],
+  });
+  setConfigStatus('Defaults restored', 'success');
+}
+
 // ─── INITIAL DATA LOAD ────────────────────────────────────────────────
 async function loadInitialData() {
+  await fetchConfig();
+
   // Load frame
   try {
     const res = await fetch('/frame');
@@ -1681,6 +1961,22 @@ async function loadInitialData() {
 
   // Load faces
   await loadFaces();
+}
+
+const videoConfigForm = document.getElementById('video-config-form');
+if (videoConfigForm) {
+  videoConfigForm.addEventListener('submit', (event) => {
+    event.preventDefault();
+    applyConfigFromForm();
+  });
+}
+
+const resetConfigBtn = document.getElementById('reset-config-btn');
+if (resetConfigBtn) {
+  resetConfigBtn.addEventListener('click', () => {
+    resetConfigDefaults();
+    applyConfigFromForm();
+  });
 }
 
 loadInitialData();

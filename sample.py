@@ -12,11 +12,62 @@ from rapidocr_onnxruntime import RapidOCR
 from shapely.geometry import Polygon
 from ultralytics import YOLO
 
-# --- CONFIGURATION ---
-VIDEO_PATH = os.environ.get("SCOPE_VIDEO", "fence.mp4")  # Override with: set SCOPE_VIDEO=yourfile.mp4
-DATABASE_PATH = "face_database.npz"  # Pre-saved face embeddings file
-JSON_LOG_PATH = "live_surveillance_log.json"
-LATEST_FRAME_PATH = "latest_frame.jpg"
+ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+CONFIG_PATH = os.environ.get("SCOPE_CONFIG_PATH", os.path.join(ROOT_DIR, "scope_config.json"))
+
+
+def resolve_path(path_value):
+    if not path_value:
+        return "car.mp4"
+    if os.path.isabs(path_value):
+        return path_value
+    candidate = os.path.join(ROOT_DIR, path_value)
+    return candidate if os.path.exists(candidate) else path_value
+
+
+def load_runtime_config():
+    default_points = [
+        [220, 365],
+        [532, 290],
+        [588, 454],
+        [355, 526],
+    ]
+    config = {
+        "video_path": "car.mp4",
+        "enable_virtual_fence": False,
+        "fence_points": default_points,
+    }
+
+    if os.path.exists(CONFIG_PATH):
+        try:
+            with open(CONFIG_PATH, "r", encoding="utf-8") as fh:
+                loaded = json.load(fh)
+            if isinstance(loaded, dict):
+                if isinstance(loaded.get("video_path"), str):
+                    config["video_path"] = loaded["video_path"]
+                if isinstance(loaded.get("enable_virtual_fence"), bool):
+                    config["enable_virtual_fence"] = loaded["enable_virtual_fence"]
+                if isinstance(loaded.get("fence_points"), list):
+                    normalized = []
+                    try:
+                        for item in loaded["fence_points"]:
+                            if isinstance(item, (list, tuple)) and len(item) >= 2:
+                                normalized.append([int(float(item[0])), int(float(item[1]))])
+                        if normalized:
+                            config["fence_points"] = normalized
+                    except (TypeError, ValueError):
+                        pass
+        except Exception:
+            pass
+
+    return config
+
+
+CONFIG = load_runtime_config()
+VIDEO_PATH = resolve_path(CONFIG["video_path"])  # Override via dashboard or set SCOPE_VIDEO=yourfile.mp4
+DATABASE_PATH = os.path.join(ROOT_DIR, "face_database.npz")  # Pre-saved face embeddings file
+JSON_LOG_PATH = os.path.join(ROOT_DIR, "live_surveillance_log.json")
+LATEST_FRAME_PATH = os.path.join(ROOT_DIR, "latest_frame.jpg")
 
 YOLO_MODEL = "yolo11n.pt"
 PLATE_MODEL = "license-plate-finetune-v1n.pt"
@@ -26,16 +77,11 @@ PLATE_CONF = 0.25
 FACE_SIMILARITY_THRESHOLD = 0.40
 
 # --- VIRTUAL FENCE CONFIGURATION ---
-ENABLE_VIRTUAL_FENCE = True  # Toggle Virtual Fence feature on/off
+ENABLE_VIRTUAL_FENCE = bool(CONFIG["enable_virtual_fence"])  # Toggle Virtual Fence feature on/off
 OVERLAP_THRESHOLD = 0.30     # Minimum area fraction overlap required to trigger intrusion (0.0 to 1.0)
 
 # Define 4-point polygon coordinates (x, y) relative to raw video frame size
-VIRTUAL_FENCE_PTS = np.array([
-    [220, 365],  # Top-Left
-    [532, 290],  # Top-Right
-    [588, 454],  # Bottom-Right
-    [355, 526]   # Bottom-Left
-], np.int32)
+VIRTUAL_FENCE_PTS = np.array(CONFIG["fence_points"], np.int32)
 
 TRACK_IMG_SIZE = 640
 PLATE_IMG_SIZE = 320

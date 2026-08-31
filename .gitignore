@@ -1,9 +1,10 @@
-car.mp4
 .venv
-fence.mp4
 known_faces
 face_database.npz
-known.mpg
-unknown.mpg
 yolo11n.pt
 license-plate-finetune-v1n.pt
+__pycache__/
+latest_frame.jpg
+live_surveillance_log.json
+scope_config.json
+videos
