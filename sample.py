@@ -318,13 +318,7 @@ print("[INFO] Processing stream with vehicle plate, face recognition, & virtual 
 while cap.isOpened():
     ret, frame = cap.read()
     if not ret:
-        if _use_webcam:
-            break  # Webcam disconnected
-        # Loop video file back to start
-        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-        ret, frame = cap.read()
-        if not ret:
-            break
+        break
 
     frame_count += 1
     if frame_count % FRAME_SKIP != 0:
